@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed, watch, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
 import { version } from '../package.json'
 import { auth, db } from './firebase'
 import { 
@@ -37,6 +37,19 @@ const leaderboard = ref([])
 const collapsedDays = ref({})
 const hasScrolledToCurrent = ref(false)
 const activeTab = ref('matches') // 'matches' | 'leaderboard' | 'admin'
+
+const showUserMenu = ref(false)
+const userMenuRef = ref(null)
+
+const toggleUserMenu = (event) => {
+  event.stopPropagation()
+  showUserMenu.value = !showUserMenu.value
+}
+
+const closeUserMenu = () => {
+  showUserMenu.value = false
+}
+
 
 // Simulation State (strictly client-side for localhost testing)
 const isSimulating = ref(false)
@@ -206,6 +219,13 @@ const getGuessesForMatch = (matchId) => {
 const getOtherGuessesCount = (matchId) => {
   return allGuesses.value.filter(g => g.matchId === matchId && g.userId !== user.value?.uid).length
 }
+
+const getPlayerRank = (player) => {
+  const points = player.points || 0
+  const higherCount = processedLeaderboard.value.filter(p => (p.points || 0) > points).length
+  return higherCount + 1
+}
+
 
 const isPredictionSaved = (matchId) => {
   const guess = userGuesses.value[matchId]
@@ -1494,6 +1514,7 @@ const clearSubscriptions = () => {
 }
 
 onMounted(() => {
+  window.addEventListener('click', closeUserMenu)
   onAuthStateChanged(auth, (currentUser) => {
     clearSubscriptions()
     
@@ -1514,6 +1535,11 @@ onMounted(() => {
     }
   })
 })
+
+onUnmounted(() => {
+  window.removeEventListener('click', closeUserMenu)
+})
+
 </script>
 
 <template>
@@ -1529,16 +1555,28 @@ onMounted(() => {
       </div>
       
       <div class="user-bar">
-        <div class="user-info">
-          <div class="avatar">
+        <div class="user-points">
+          <span class="points-icon">🏆</span>
+          <span class="points-val">{{ processedUserProfile?.points || 0 }}</span>
+          <span class="points-label"> {{ (processedUserProfile?.points === 1) ? ' Point' : ' Points' }}</span>
+        </div>
+        
+        <div class="user-menu-container" ref="userMenuRef" @click.stop>
+          <button class="btn-avatar-menu" @click="toggleUserMenu">
             {{ processedUserProfile?.displayName?.charAt(0).toUpperCase() || user.email.charAt(0).toUpperCase() }}
-          </div>
-          <div class="user-details">
-            <span class="user-name">{{ processedUserProfile?.displayName || 'User' }}</span>
-            <span class="user-points">🏆 {{ processedUserProfile?.points || 0 }} Points</span>
+          </button>
+          
+          <div v-if="showUserMenu" class="user-dropdown-menu">
+            <div class="dropdown-user-info">
+              <span class="dropdown-user-name">{{ processedUserProfile?.displayName || 'User' }}</span>
+              <span class="dropdown-user-email">{{ user.email }}</span>
+            </div>
+            <div class="dropdown-divider"></div>
+            <button class="dropdown-item" @click="handleLogout">
+              <span>🚪</span> Sign Out
+            </button>
           </div>
         </div>
-        <button class="btn btn-secondary btn-logout" @click="handleLogout">Sign Out</button>
       </div>
     </div>
 
@@ -1792,13 +1830,13 @@ onMounted(() => {
               <span 
                 class="rank-badge"
                 :class="{
-                  'rank-1': idx === 0,
-                  'rank-2': idx === 1,
-                  'rank-3': idx === 2,
-                  'rank-other': idx > 2
+                  'rank-1': getPlayerRank(player) === 1,
+                  'rank-2': getPlayerRank(player) === 2,
+                  'rank-3': getPlayerRank(player) === 3,
+                  'rank-other': getPlayerRank(player) > 3
                 }"
               >
-                {{ idx + 1 }}
+                {{ getPlayerRank(player) }}
               </span>
             </td>
             <td class="name-cell">

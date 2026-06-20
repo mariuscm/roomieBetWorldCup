@@ -273,54 +273,114 @@ input:focus {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: var(--panel-bg);
-  border: 1px solid var(--panel-border);
-  border-radius: var(--btn-radius);
-  padding: 0.75rem 1.25rem;
-  margin-bottom: 2rem;
-  backdrop-filter: blur(10px);
-}
-
-.user-info {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.avatar {
-  background: linear-gradient(135deg, var(--primary) 0%, #009cff 100%);
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-display);
-  font-weight: 700;
-  color: #040806;
-}
-
-.user-details {
-  display: flex;
-  flex-direction: column;
-}
-
-.user-name {
-  font-weight: 600;
-  font-size: 0.95rem;
+  gap: 1.5rem;
 }
 
 .user-points {
-  font-size: 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.95rem;
   color: var(--primary);
   font-weight: 700;
+  user-select: none;
 }
 
-.btn-logout {
-  padding: 0.4rem 0.8rem;
-  font-size: 0.8rem;
-  width: auto;
+.points-icon {
+  font-size: 1rem;
+}
+
+.user-menu-container {
+  position: relative;
+}
+
+.btn-avatar-menu {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary) 0%, #009cff 100%);
+  color: #040806;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.95rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+  box-shadow: 0 0 12px rgba(0, 245, 155, 0.15);
+  user-select: none;
+}
+
+.btn-avatar-menu:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 18px var(--primary-glow);
+  border-color: var(--primary);
+}
+
+.user-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  background: rgba(10, 16, 13, 0.98);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 0.6rem;
+  min-width: 180px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(12px);
+  z-index: 1010;
+}
+
+.dropdown-user-info {
+  display: flex;
+  flex-direction: column;
+  padding: 0.25rem 0.6rem;
+}
+
+.dropdown-user-name {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  word-break: break-word;
+  line-height: 1.2;
+  margin-bottom: 0.15rem;
+}
+
+.dropdown-user-email {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  word-break: break-word;
+  line-height: 1.25;
+}
+
+.dropdown-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 0.5rem 0;
+}
+
+.dropdown-item {
+  width: 100%;
+  padding: 0.5rem 0.8rem;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-family: var(--font-body);
+  text-align: left;
   border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: var(--transition-smooth);
+}
+
+.dropdown-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--primary);
 }
 
 /* Tabs */
@@ -1115,39 +1175,19 @@ input[type="number"] {
     align-items: center;
   }
   
-  .app-header-bar .user-info {
-    gap: 0.35rem;
-  }
-  
-  .app-header-bar .avatar {
-    width: 24px;
-    height: 24px;
-    font-size: 0.75rem;
-  }
-  
-  .app-header-bar .user-details {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    line-height: 1.1;
-  }
-  
-  .app-header-bar .user-name {
-    font-size: 0.8rem;
-    max-width: 70px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  
   .app-header-bar .user-points {
-    font-size: 0.7rem;
+    font-size: 0.85rem;
+    gap: 0.25rem;
   }
   
-  .app-header-bar .btn-logout {
-    padding: 0.35rem 0.6rem;
-    font-size: 0.75rem;
-    border-radius: 6px;
+  .app-header-bar .points-label {
+    display: none;
+  }
+  
+  .app-header-bar .btn-avatar-menu {
+    width: 32px;
+    height: 32px;
+    font-size: 0.85rem;
   }
 
   .app-header-bar .tabs {
