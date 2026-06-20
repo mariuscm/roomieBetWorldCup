@@ -1197,6 +1197,47 @@ input[type="number"] {
   }
 }
 
+/* Extra responsive adjustments for narrow screens (e.g. Mobile S 320px) */
+@media (max-width: 360px) {
+  .app-header-bar {
+    padding: 0.75rem;
+  }
+  
+  .match-card {
+    padding: 1rem 0.75rem;
+  }
+
+  .team-name {
+    font-size: 0.75rem;
+  }
+  
+  .team-flag-img {
+    width: 18px;
+    height: 13px;
+  }
+  
+  .team-flag {
+    font-size: 1.15rem;
+  }
+  
+  .match-teams-grid {
+    gap: 0.25rem;
+  }
+  
+  .team {
+    gap: 0.25rem;
+  }
+  
+  .official-score {
+    font-size: 1.1rem;
+    padding: 0.15rem 0.35rem;
+  }
+  
+  .vs {
+    font-size: 0.8rem;
+  }
+}
+
 /* Collapsible Match Days Elements */
 .completed-day-badge {
   font-size: 0.75rem;
