@@ -55,12 +55,14 @@ body {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 
 .guest-header {
   text-align: center;
   margin-top: 2rem;
   margin-bottom: 2.5rem;
+  position: relative;
 }
 
 .logo-container {
@@ -85,6 +87,19 @@ h1 {
   background: linear-gradient(135deg, #ffffff 30%, var(--primary) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+}
+
+.app-version-fixed {
+  position: absolute;
+  top: 0.5rem;
+  right: 1.5rem;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  opacity: 0.4;
+  font-family: var(--font-body);
+  user-select: none;
+  pointer-events: none;
+  z-index: 2000;
 }
 
 .guest-header p {
@@ -798,6 +813,13 @@ input[type="number"] {
 @media (max-width: 600px) {
   h1 {
     font-size: 2rem;
+  }
+
+  .app-version-fixed {
+    top: 0.15rem;
+    right: 1rem;
+    left: auto;
+    font-size: 0.6rem;
   }
   
   .match-card {

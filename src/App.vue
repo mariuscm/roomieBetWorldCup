@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, computed, watch, nextTick } from 'vue'
+import { version } from '../package.json'
 import { auth, db } from './firebase'
 import { 
   signInWithEmailAndPassword, 
@@ -1517,6 +1518,7 @@ onMounted(() => {
 
 <template>
   <header v-if="user" class="app-header-bar">
+    <div class="app-version-fixed">v{{ version }}</div>
     <div class="header-top-row">
       <div class="logo-group">
         <div class="logo-container">
@@ -1569,6 +1571,7 @@ onMounted(() => {
 
   <!-- Guest Header -->
   <header v-else class="guest-header">
+    <div class="app-version-fixed">v{{ version }}</div>
     <div class="logo-container">
       <span class="logo-icon">🏆</span>
       <h1>Roomie Bet</h1>
