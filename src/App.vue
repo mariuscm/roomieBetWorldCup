@@ -182,22 +182,24 @@ const getGuessesForMatch = (matchId) => {
   const homeFinal = Number(simulatedHomeScore.value)
   const awayFinal = Number(simulatedAwayScore.value)
   
-  return finalLeaderboard.map(player => {
-    const guess = allGuesses.value.find(g => g.matchId === matchId && g.userId === player.uid)
-    let pointsEarned = guess?.pointsEarned
-    if (isSimulating.value && matchId === simulatedMatchId.value && simulatedStatus.value === 'completed') {
-      const isCorrect = guess && Number(guess.homeGuess) === homeFinal && Number(guess.awayGuess) === awayFinal
-      pointsEarned = isCorrect ? 1 : 0
-    }
-    
-    return {
-      uid: player.uid,
-      playerName: player.displayName,
-      homeGuess: guess?.homeGuess,
-      awayGuess: guess?.awayGuess,
-      pointsEarned: pointsEarned
-    }
-  })
+  return finalLeaderboard
+    .filter(player => player.uid !== user.value?.uid)
+    .map(player => {
+      const guess = allGuesses.value.find(g => g.matchId === matchId && g.userId === player.uid)
+      let pointsEarned = guess?.pointsEarned
+      if (isSimulating.value && matchId === simulatedMatchId.value && simulatedStatus.value === 'completed') {
+        const isCorrect = guess && Number(guess.homeGuess) === homeFinal && Number(guess.awayGuess) === awayFinal
+        pointsEarned = isCorrect ? 1 : 0
+      }
+      
+      return {
+        uid: player.uid,
+        playerName: player.displayName,
+        homeGuess: guess?.homeGuess,
+        awayGuess: guess?.awayGuess,
+        pointsEarned: pointsEarned
+      }
+    })
 }
 
 const getOtherGuessesCount = (matchId) => {
@@ -304,8 +306,62 @@ const isDayCollapsed = (group) => {
 }
 
 const scrollToCurrentDay = () => {
-  if (groupedMatches.value.length === 0) return
+  if (processedMatches.value.length === 0) return
 
+  // 1. Try to find the first live match
+  const liveMatch = processedMatches.value.find(m => m.status === 'live')
+  if (liveMatch) {
+    const dayKey = getLocalDateString(liveMatch.date)
+    collapsedDays.value[dayKey] = false
+    
+    nextTick(() => {
+      setTimeout(() => {
+        const el = document.getElementById(`match-${liveMatch.id}`)
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
+      }, 50)
+    })
+    return
+  }
+
+  // 2. Try to find the first upcoming scheduled match
+  const scheduledMatches = processedMatches.value.filter(m => m.status === 'scheduled')
+  const nextMatch = scheduledMatches[0]
+
+  if (nextMatch) {
+    const dayKey = getLocalDateString(nextMatch.date)
+    collapsedDays.value[dayKey] = false
+
+    // Check if there are any completed matches on the SAME day as the next match
+    const dayMatches = processedMatches.value.filter(m => getLocalDateString(m.date) === dayKey)
+    const hasCompletedMatchesOnDay = dayMatches.some(m => m.status === 'completed')
+
+    if (hasCompletedMatchesOnDay) {
+      // Scroll directly to the match card itself
+      nextTick(() => {
+        setTimeout(() => {
+          const el = document.getElementById(`match-${nextMatch.id}`)
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          }
+        }, 50)
+      })
+    } else {
+      // Scroll to the day header
+      nextTick(() => {
+        setTimeout(() => {
+          const el = document.getElementById(getGroupElementId(dayKey))
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          }
+        }, 50)
+      })
+    }
+    return
+  }
+
+  // 3. Fallback: Scroll to today's day header or first group
   const todayStr = getLocalDateString(new Date())
   let targetGroup = groupedMatches.value.find(g => g.day === todayStr)
 
@@ -321,11 +377,15 @@ const scrollToCurrentDay = () => {
 
   collapsedDays.value[targetGroup.day] = false
 
-  const elementId = getGroupElementId(targetGroup.day)
-  const el = document.getElementById(elementId)
-  if (el) {
-    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }
+  nextTick(() => {
+    setTimeout(() => {
+      const elementId = getGroupElementId(targetGroup.day)
+      const el = document.getElementById(elementId)
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+    }, 50)
+  })
 }
 
 watch(matches, (newVal) => {
@@ -1546,6 +1606,7 @@ onMounted(() => {
           <div 
             v-for="match in group.matches" 
             :key="match.id" 
+            :id="'match-' + match.id"
             class="match-card"
             :class="{
               completed: match.status === 'completed',

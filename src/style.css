@@ -365,6 +365,7 @@ input:focus {
   transition: var(--transition-smooth);
   position: relative;
   overflow: hidden;
+  scroll-margin-top: 200px;
 }
 
 .match-card:hover {
@@ -802,6 +803,7 @@ input[type="number"] {
   .match-card {
     padding: 1.25rem 1rem;
     gap: 1rem;
+    scroll-margin-top: 160px;
   }
 
   .match-teams-grid {
