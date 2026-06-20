@@ -61,17 +61,124 @@ const simulatorIntervalId = ref(null)
 const simulatorMessage = ref('')
 const isLocalhost = computed(() => typeof window !== 'undefined' && window.location.hostname === 'localhost')
 
-const processedMatches = computed(() => {
-  if (!isSimulating.value || !simulatedMatchId.value) {
-    return matches.value
+// ESPN live scores state & polling
+const espnLiveScores = ref({})
+let espnPollIntervalId = null
+
+const clientTeamNameMapping = {
+  "united states": "usa",
+  "bosnia and herzegovina": "bosnia & herzegovina",
+  "bosnia & herzegovina": "bosnia & herzegovina",
+  "congo dr": "dr congo",
+  "dr congo": "dr congo",
+  "côte d'ivoire": "ivory coast",
+  "cote d'ivoire": "ivory coast",
+  "ivory coast": "ivory coast",
+  "czechia": "czech republic",
+  "czech republic": "czech republic",
+  "cape verde": "cape verde",
+  "cabo verde": "cape verde",
+  "turkiye": "turkey",
+  "türkiye": "turkey"
+}
+
+const normalizeNameForClient = (name) => {
+  if (!name) return ""
+  return name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\band\b/g, "&")
+    .trim()
+}
+
+const getNormalizedTeamName = (name) => {
+  const norm = normalizeNameForClient(name)
+  return clientTeamNameMapping[norm] || norm
+}
+
+const fetchESPNLiveScores = async () => {
+  try {
+    const res = await fetch("https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard")
+    if (!res.ok) throw new Error("Failed to fetch ESPN scoreboard")
+    const data = await res.json()
+    
+    const events = data.events || []
+    const newLiveScores = {}
+    
+    events.forEach(event => {
+      const competition = event.competitions?.[0]
+      if (!competition) return
+      
+      const homeCompetitor = competition.competitors?.find(c => c.homeAway === "home")
+      const awayCompetitor = competition.competitors?.find(c => c.homeAway === "away")
+      if (!homeCompetitor || !awayCompetitor) return
+      
+      const espnHomeTeam = homeCompetitor.team?.displayName
+      const espnAwayTeam = awayCompetitor.team?.displayName
+      
+      const homeNorm = getNormalizedTeamName(espnHomeTeam)
+      const awayNorm = getNormalizedTeamName(espnAwayTeam)
+      
+      const matchedLocalMatch = matches.value.find(m => {
+        const localHomeNorm = getNormalizedTeamName(m.homeTeam)
+        const localAwayNorm = getNormalizedTeamName(m.awayTeam)
+        return localHomeNorm === homeNorm && localAwayNorm === awayNorm
+      })
+      
+      if (matchedLocalMatch) {
+        const rawStatus = event.status?.type?.state // 'pre' | 'in' | 'post'
+        let mappedStatus = 'scheduled'
+        if (rawStatus === 'in') {
+          mappedStatus = 'live'
+        } else if (rawStatus === 'post') {
+          mappedStatus = 'completed'
+        }
+        
+        const homeScore = homeCompetitor.score !== undefined ? Number(homeCompetitor.score) : null
+        const awayScore = awayCompetitor.score !== undefined ? Number(awayCompetitor.score) : null
+        
+        if (mappedStatus !== 'scheduled') {
+          newLiveScores[matchedLocalMatch.id] = {
+            homeScore,
+            awayScore,
+            status: mappedStatus
+          }
+        }
+      }
+    })
+    
+    espnLiveScores.value = newLiveScores
+  } catch (err) {
+    console.error("ESPN live score client-side fetch failed: ", err)
   }
-  return matches.value.map(match => {
-    if (match.id === simulatedMatchId.value) {
+}
+
+const processedMatches = computed(() => {
+  let baseMatches = matches.value
+  
+  if (isSimulating.value && simulatedMatchId.value) {
+    baseMatches = matches.value.map(match => {
+      if (match.id === simulatedMatchId.value) {
+        return {
+          ...match,
+          homeScore: simulatedHomeScore.value,
+          awayScore: simulatedAwayScore.value,
+          status: simulatedStatus.value
+        }
+      }
+      return match
+    })
+  }
+  
+  return baseMatches.map(match => {
+    const liveUpdate = espnLiveScores.value[match.id]
+    if (liveUpdate && match.status !== 'completed') {
       return {
         ...match,
-        homeScore: simulatedHomeScore.value,
-        awayScore: simulatedAwayScore.value,
-        status: simulatedStatus.value
+        homeScore: liveUpdate.homeScore,
+        awayScore: liveUpdate.awayScore,
+        status: liveUpdate.status
       }
     }
     return match
@@ -1515,6 +1622,11 @@ const clearSubscriptions = () => {
 
 onMounted(() => {
   window.addEventListener('click', closeUserMenu)
+  
+  // Client-side real-time score polling
+  fetchESPNLiveScores()
+  espnPollIntervalId = setInterval(fetchESPNLiveScores, 60000)
+
   onAuthStateChanged(auth, (currentUser) => {
     clearSubscriptions()
     
@@ -1538,6 +1650,9 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('click', closeUserMenu)
+  if (espnPollIntervalId) {
+    clearInterval(espnPollIntervalId)
+  }
 })
 
 </script>
