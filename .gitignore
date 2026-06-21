@@ -24,4 +24,4 @@ dist-ssr
 *.sw?
 inspect.js
 .firebase/
-
+scratch/
