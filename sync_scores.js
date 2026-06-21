@@ -72,18 +72,42 @@ async function syncScores() {
     await signInWithEmailAndPassword(auth, "mariuscm@gmail.com", password);
     console.log("Authenticated successfully!");
 
+    const getESPNFormatDate = (date) => {
+      const yyyy = date.getUTCFullYear();
+      const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const dd = String(date.getUTCDate()).padStart(2, '0');
+      return `${yyyy}${mm}${dd}`;
+    };
+
     // 2. Fetch ESPN live score feed
-    console.log("Fetching live scores from ESPN...");
-    const res = await fetch("https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard");
-    if (!res.ok) throw new Error(`ESPN API returned status ${res.status}`);
-    const data = await res.json();
-    
-    const events = data.events || [];
+    console.log("Fetching live scores from ESPN (yesterday, today, tomorrow)...");
+    const now = new Date();
+    const dates = [
+      getESPNFormatDate(new Date(now.getTime() - 24 * 60 * 60 * 1000)), // yesterday
+      getESPNFormatDate(now),                                          // today
+      getESPNFormatDate(new Date(now.getTime() + 24 * 60 * 60 * 1000))  // tomorrow
+    ];
+
+    const results = await Promise.all(
+      dates.map(dateStr => 
+        fetch(`https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=${dateStr}`)
+          .then(res => {
+            if (!res.ok) throw new Error(`Status ${res.status}`);
+            return res.json();
+          })
+          .catch(err => {
+            console.error(`Failed to fetch ESPN for date ${dateStr}:`, err);
+            return { events: [] };
+          })
+      )
+    );
+
+    const events = results.flatMap(data => data.events || []);
     if (events.length === 0) {
       console.log("No events found in ESPN feed.");
       return;
     }
-    console.log(`Found ${events.length} match events in ESPN scoreboard.`);
+    console.log(`Found ${events.length} match events across 3 days in ESPN scoreboard.`);
 
     // 3. Fetch matches from Firestore
     console.log("Reading matches database...");

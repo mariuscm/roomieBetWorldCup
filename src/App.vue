@@ -97,13 +97,37 @@ const getNormalizedTeamName = (name) => {
   return clientTeamNameMapping[norm] || norm
 }
 
+const getESPNFormatDate = (date) => {
+  const yyyy = date.getUTCFullYear()
+  const mm = String(date.getUTCMonth() + 1).padStart(2, '0')
+  const dd = String(date.getUTCDate()).padStart(2, '0')
+  return `${yyyy}${mm}${dd}`
+}
+
 const fetchESPNLiveScores = async () => {
   try {
-    const res = await fetch("https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard")
-    if (!res.ok) throw new Error("Failed to fetch ESPN scoreboard")
-    const data = await res.json()
+    const now = new Date()
+    const dates = [
+      getESPNFormatDate(new Date(now.getTime() - 24 * 60 * 60 * 1000)), // yesterday
+      getESPNFormatDate(now),                                          // today
+      getESPNFormatDate(new Date(now.getTime() + 24 * 60 * 60 * 1000))  // tomorrow
+    ]
     
-    const events = data.events || []
+    const results = await Promise.all(
+      dates.map(dateStr => 
+        fetch(`https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=${dateStr}`)
+          .then(res => {
+            if (!res.ok) throw new Error(`Status ${res.status}`)
+            return res.json()
+          })
+          .catch(err => {
+            console.error(`Failed to fetch ESPN for date ${dateStr}:`, err)
+            return { events: [] }
+          })
+      )
+    )
+    
+    const events = results.flatMap(data => data.events || [])
     const newLiveScores = {}
     
     events.forEach(event => {
