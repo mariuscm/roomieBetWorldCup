@@ -185,41 +185,69 @@ const processedMatches = computed(() => {
   })
 })
 
+const pendingCompletedMatches = computed(() => {
+  const list = []
+  processedMatches.value.forEach(pm => {
+    const dbMatch = matches.value.find(m => m.id === pm.id)
+    if (pm.status === 'completed' && dbMatch && dbMatch.status !== 'completed') {
+      list.push(pm)
+    }
+  })
+  return list
+})
+
+const getPendingPointsForUser = (userId) => {
+  let extraPoints = 0
+  pendingCompletedMatches.value.forEach(match => {
+    const guess = allGuesses.value.find(g => g.matchId === match.id && g.userId === userId)
+    if (guess && guess.homeGuess !== null && guess.awayGuess !== null) {
+      const isCorrect = Number(guess.homeGuess) === Number(match.homeScore) && 
+                        Number(guess.awayGuess) === Number(match.awayScore)
+      if (isCorrect) {
+        extraPoints++
+      }
+    }
+  })
+  return extraPoints
+}
+
 const processedUserProfile = computed(() => {
   if (!userProfile.value) return null
-  if (!isSimulating.value || !simulatedMatchId.value || simulatedStatus.value !== 'completed') {
-    return userProfile.value
-  }
-  const guess = userGuesses.value[simulatedMatchId.value]
-  const isCorrect = guess && Number(guess.homeGuess) === Number(simulatedHomeScore.value) && Number(guess.awayGuess) === Number(simulatedAwayScore.value)
-  if (isCorrect) {
-    return {
-      ...userProfile.value,
-      points: (userProfile.value.points || 0) + 1
+  let extra = getPendingPointsForUser(userProfile.value.uid)
+  
+  if (isSimulating.value && simulatedMatchId.value && simulatedStatus.value === 'completed') {
+    const guess = userGuesses.value[simulatedMatchId.value]
+    const isCorrect = guess && Number(guess.homeGuess) === Number(simulatedHomeScore.value) && Number(guess.awayGuess) === Number(simulatedAwayScore.value)
+    if (isCorrect) {
+      extra += 1
     }
   }
-  return userProfile.value
+  
+  return {
+    ...userProfile.value,
+    points: (userProfile.value.points || 0) + extra
+  }
 })
 
 const processedLeaderboard = computed(() => {
-  if (!isSimulating.value || !simulatedMatchId.value || simulatedStatus.value !== 'completed') {
-    return leaderboard.value
-  }
-  const targetId = simulatedMatchId.value
-  const homeFinal = Number(simulatedHomeScore.value)
-  const awayFinal = Number(simulatedAwayScore.value)
-  
-  return leaderboard.value.map(player => {
-    const guess = allGuesses.value.find(g => g.matchId === targetId && g.userId === player.uid)
-    const isCorrect = guess && Number(guess.homeGuess) === homeFinal && Number(guess.awayGuess) === awayFinal
-    if (isCorrect) {
-      return {
-        ...player,
-        points: (player.points || 0) + 1
+  const mapped = leaderboard.value.map(player => {
+    let extra = getPendingPointsForUser(player.uid)
+    
+    if (isSimulating.value && simulatedMatchId.value && simulatedStatus.value === 'completed') {
+      const guess = allGuesses.value.find(g => g.matchId === simulatedMatchId.value && g.userId === player.uid)
+      const isCorrect = guess && Number(guess.homeGuess) === Number(simulatedHomeScore.value) && Number(guess.awayGuess) === Number(simulatedAwayScore.value)
+      if (isCorrect) {
+        extra += 1
       }
     }
-    return player
-  }).sort((a, b) => (b.points || 0) - (a.points || 0))
+    
+    return {
+      ...player,
+      points: (player.points || 0) + extra
+    }
+  })
+  
+  return [...mapped].sort((a, b) => (b.points || 0) - (a.points || 0))
 })
 
 const startSimulation = () => {
@@ -281,7 +309,19 @@ const userGuesses = computed(() => {
   })
   allGuesses.value.forEach(guess => {
     if (guess.userId === user.value?.uid) {
-      guessesObj[guess.matchId] = guess
+      guessesObj[guess.matchId] = { ...guess }
+    }
+  })
+  
+  // Dynamic client-side score evaluation for completed matches
+  processedMatches.value.forEach(match => {
+    if (match.status === 'completed') {
+      const guess = guessesObj[match.id]
+      if (guess && guess.homeGuess !== null && guess.awayGuess !== null && guess.pointsEarned === null) {
+        const isCorrect = Number(guess.homeGuess) === Number(match.homeScore) && 
+                          Number(guess.awayGuess) === Number(match.awayScore)
+        guess.pointsEarned = isCorrect ? 1 : 0
+      }
     }
   })
   
@@ -300,17 +340,25 @@ const userGuesses = computed(() => {
 
 const getGuessesForMatch = (matchId) => {
   const finalLeaderboard = processedLeaderboard.value
-  const homeFinal = Number(simulatedHomeScore.value)
-  const awayFinal = Number(simulatedAwayScore.value)
+  const match = processedMatches.value.find(m => m.id === matchId)
   
   return finalLeaderboard
     .filter(player => player.uid !== user.value?.uid)
     .map(player => {
       const guess = allGuesses.value.find(g => g.matchId === matchId && g.userId === player.uid)
       let pointsEarned = guess?.pointsEarned
+      
       if (isSimulating.value && matchId === simulatedMatchId.value && simulatedStatus.value === 'completed') {
+        const homeFinal = Number(simulatedHomeScore.value)
+        const awayFinal = Number(simulatedAwayScore.value)
         const isCorrect = guess && Number(guess.homeGuess) === homeFinal && Number(guess.awayGuess) === awayFinal
         pointsEarned = isCorrect ? 1 : 0
+      } else if (match && match.status === 'completed' && pointsEarned === null) {
+        if (guess && guess.homeGuess !== null && guess.awayGuess !== null) {
+          const isCorrect = Number(guess.homeGuess) === Number(match.homeScore) && 
+                            Number(guess.awayGuess) === Number(match.awayScore)
+          pointsEarned = isCorrect ? 1 : 0
+        }
       }
       
       return {

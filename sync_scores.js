@@ -191,6 +191,7 @@ async function syncScores() {
     }
   } catch (err) {
     console.error("❌ Sync Error:", err);
+    process.exit(1);
   } finally {
     process.exit(0);
   }
