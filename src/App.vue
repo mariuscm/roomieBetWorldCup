@@ -1731,7 +1731,6 @@ onUnmounted(() => {
 
 <template>
   <header v-if="user" class="app-header-bar">
-    <div class="app-version-fixed">v{{ version }}</div>
     <div class="header-top-row">
       <div class="logo-group">
         <div class="logo-container">
@@ -1749,6 +1748,7 @@ onUnmounted(() => {
         </div>
         
         <div class="user-menu-container" ref="userMenuRef" @click.stop>
+          <div class="app-version-fixed">v{{ version }}</div>
           <button class="btn-avatar-menu" @click="toggleUserMenu">
             {{ processedUserProfile?.displayName?.charAt(0).toUpperCase() || user.email.charAt(0).toUpperCase() }}
           </button>
