@@ -71,15 +71,16 @@ const showUpdateBanner = ref(false)
 const remoteVersion = ref('')
 let versionCheckIntervalId = null
 
-const handleVisibilityChange = () => {
-  if (document.visibilityState === 'visible') {
-    checkAppVersion()
-  }
-}
+let lastVersionCheckTime = 0
 
 async function checkAppVersion() {
+  const now = Date.now()
+  // Throttle to at most once every 30 seconds to avoid server spam
+  if (now - lastVersionCheckTime < 30000) return
+  lastVersionCheckTime = now
+
   try {
-    const response = await fetch(`/version.json?t=${Date.now()}`)
+    const response = await fetch(`/version.json?t=${now}`)
     if (response.ok) {
       const data = await response.json()
       if (data.version) {
@@ -94,6 +95,10 @@ async function checkAppVersion() {
   } catch (error) {
     console.debug('App version check skipped or failed:', error)
   }
+}
+
+const handleActivity = () => {
+  checkAppVersion()
 }
 
 function triggerReload() {
@@ -1741,8 +1746,10 @@ onMounted(() => {
 
   // App update checking
   checkAppVersion()
-  versionCheckIntervalId = setInterval(checkAppVersion, 300000) // check every 5 minutes
-  document.addEventListener('visibilitychange', handleVisibilityChange)
+  versionCheckIntervalId = setInterval(checkAppVersion, 60000) // check every 1 minute
+  document.addEventListener('visibilitychange', handleActivity)
+  window.addEventListener('focus', handleActivity)
+  window.addEventListener('click', handleActivity)
 
   onAuthStateChanged(auth, (currentUser) => {
     clearSubscriptions()
@@ -1774,7 +1781,9 @@ onUnmounted(() => {
   if (versionCheckIntervalId) {
     clearInterval(versionCheckIntervalId)
   }
-  document.removeEventListener('visibilitychange', handleVisibilityChange)
+  document.removeEventListener('visibilitychange', handleActivity)
+  window.removeEventListener('focus', handleActivity)
+  window.removeEventListener('click', handleActivity)
 })
 
 </script>
