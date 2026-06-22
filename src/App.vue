@@ -64,6 +64,7 @@ const isLocalhost = computed(() => typeof window !== 'undefined' && window.locat
 // ESPN live scores state & polling
 const espnLiveScores = ref({})
 let espnPollIntervalId = null
+let hasFetchedLiveScoresInitial = false
 
 const clientTeamNameMapping = {
   "united states": "usa",
@@ -421,6 +422,11 @@ watch(matches, (newMatches) => {
       predictionInputs.value[match.id] = { homeGuess: null, awayGuess: null }
     }
   })
+  
+  if (newMatches && newMatches.length > 0 && !hasFetchedLiveScoresInitial) {
+    hasFetchedLiveScoresInitial = true
+    fetchESPNLiveScores()
+  }
 }, { deep: true })
 
 // Date helpers for grouping matches
@@ -1701,6 +1707,7 @@ onMounted(() => {
 
   onAuthStateChanged(auth, (currentUser) => {
     clearSubscriptions()
+    hasFetchedLiveScoresInitial = false
     
     // Clear all state to prevent memory leaks or data cross-contamination
     userProfile.value = null
