@@ -66,6 +66,40 @@ const espnLiveScores = ref({})
 let espnPollIntervalId = null
 let hasFetchedLiveScoresInitial = false
 
+// Version checking state
+const showUpdateBanner = ref(false)
+const remoteVersion = ref('')
+let versionCheckIntervalId = null
+
+const handleVisibilityChange = () => {
+  if (document.visibilityState === 'visible') {
+    checkAppVersion()
+  }
+}
+
+async function checkAppVersion() {
+  try {
+    const response = await fetch(`/version.json?t=${Date.now()}`)
+    if (response.ok) {
+      const data = await response.json()
+      if (data.version) {
+        remoteVersion.value = data.version
+        if (data.version !== version) {
+          showUpdateBanner.value = true
+        } else {
+          showUpdateBanner.value = false
+        }
+      }
+    }
+  } catch (error) {
+    console.debug('App version check skipped or failed:', error)
+  }
+}
+
+function triggerReload() {
+  window.location.reload()
+}
+
 const clientTeamNameMapping = {
   "united states": "usa",
   "bosnia and herzegovina": "bosnia & herzegovina",
@@ -1705,6 +1739,11 @@ onMounted(() => {
   fetchESPNLiveScores()
   espnPollIntervalId = setInterval(fetchESPNLiveScores, 60000)
 
+  // App update checking
+  checkAppVersion()
+  versionCheckIntervalId = setInterval(checkAppVersion, 300000) // check every 5 minutes
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+
   onAuthStateChanged(auth, (currentUser) => {
     clearSubscriptions()
     hasFetchedLiveScoresInitial = false
@@ -1732,6 +1771,10 @@ onUnmounted(() => {
   if (espnPollIntervalId) {
     clearInterval(espnPollIntervalId)
   }
+  if (versionCheckIntervalId) {
+    clearInterval(versionCheckIntervalId)
+  }
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 
 </script>
@@ -2207,5 +2250,21 @@ onUnmounted(() => {
         ⏹ Stop Simulation
       </button>
     </div>
+  </div>
+
+  <!-- Update Notification Toast -->
+  <div v-if="showUpdateBanner" class="update-toast">
+    <div class="update-toast-content">
+      <div class="update-toast-title">
+        <span class="update-toast-sparkle">✨</span>
+        New Version Available!
+      </div>
+      <div class="update-toast-desc">
+        v{{ remoteVersion }} is ready. Click reload to update.
+      </div>
+    </div>
+    <button class="update-toast-btn" @click="triggerReload">
+      Reload Now
+    </button>
   </div>
 </template>
