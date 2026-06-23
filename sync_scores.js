@@ -10,16 +10,46 @@ import {
   where
 } from "firebase/firestore";
 import { getAuth, signInWithEmailAndPassword } from "firebase/auth";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+// Load local .env if it exists
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const envPath = path.resolve(__dirname, ".env");
+if (fs.existsSync(envPath)) {
+  const envConfig = fs.readFileSync(envPath, "utf8");
+  envConfig.split("\n").forEach(line => {
+    const match = line.match(/^\s*([\w.-]+)\s*=\s*(.*)?\s*$/);
+    if (match) {
+      const key = match[1];
+      let value = match[2] || "";
+      if (value.length > 0 && value.charAt(0) === '"' && value.charAt(value.length - 1) === '"') {
+        value = value.substring(1, value.length - 1);
+      } else if (value.length > 0 && value.charAt(0) === "'" && value.charAt(value.length - 1) === "'") {
+        value = value.substring(1, value.length - 1);
+      }
+      if (!process.env[key]) {
+        process.env[key] = value.trim();
+      }
+    }
+  });
+}
 
 // Firebase web config matching src/firebase.js
 const firebaseConfig = {
   projectId: "roomiebet-2026-mcm",
   appId: "1:748284716767:web:c760bdbf996a17413e6b6a",
   storageBucket: "roomiebet-2026-mcm.firebasestorage.app",
-  apiKey: "AIzaSyBfzmfZvpA09gyXBcAg0mbmNwSqy4s6IAA",
+  apiKey: process.env.VITE_FIREBASE_API_KEY || process.env.FIREBASE_API_KEY,
   authDomain: "roomiebet-2026-mcm.firebaseapp.com",
   messagingSenderId: "748284716767"
 };
+
+if (!firebaseConfig.apiKey) {
+  console.error("❌ Error: Firebase API Key is missing. Please set VITE_FIREBASE_API_KEY in your .env file or environment variables.");
+  process.exit(1);
+}
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);

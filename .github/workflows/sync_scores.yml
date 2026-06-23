@@ -24,4 +24,5 @@ jobs:
       - name: Run Score Sync Script
         env:
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          VITE_FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
         run: node sync_scores.js --commit

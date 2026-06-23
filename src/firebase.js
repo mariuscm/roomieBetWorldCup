@@ -6,7 +6,7 @@ const firebaseConfig = {
   projectId: "roomiebet-2026-mcm",
   appId: "1:748284716767:web:c760bdbf996a17413e6b6a",
   storageBucket: "roomiebet-2026-mcm.firebasestorage.app",
-  apiKey: "AIzaSyBfzmfZvpA09gyXBcAg0mbmNwSqy4s6IAA",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: "roomiebet-2026-mcm.firebaseapp.com",
   messagingSenderId: "748284716767"
 };

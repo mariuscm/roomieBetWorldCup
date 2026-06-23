@@ -25,3 +25,9 @@ dist-ssr
 inspect.js
 .firebase/
 scratch/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
