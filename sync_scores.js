@@ -60,6 +60,7 @@ const teamNameMapping = {
   "united states": "usa",
   "bosnia and herzegovina": "bosnia & herzegovina",
   "bosnia & herzegovina": "bosnia & herzegovina",
+  "bosnia-herzegovina": "bosnia & herzegovina",
   "congo dr": "dr congo",
   "dr congo": "dr congo",
   "côte d'ivoire": "ivory coast",
