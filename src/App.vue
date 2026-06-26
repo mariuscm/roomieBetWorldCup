@@ -22,6 +22,7 @@ import {
   orderBy, 
   onSnapshot, 
   updateDoc, 
+  deleteDoc,
   writeBatch,
   increment,
   Timestamp
@@ -38,6 +39,7 @@ const leaderboard = ref([])
 const collapsedDays = ref({})
 const hasScrolledToCurrent = ref(false)
 const activeTab = ref('matches') // 'matches' | 'leaderboard' | 'admin'
+const activeAdminSubTab = ref('users') // 'users' | 'scores' | 'setup'
 
 const showUserMenu = ref(false)
 const userMenuRef = ref(null)
@@ -299,7 +301,8 @@ const processedUserProfile = computed(() => {
 })
 
 const processedLeaderboard = computed(() => {
-  const mapped = leaderboard.value.map(player => {
+  const activePlayers = leaderboard.value.filter(player => player.disabled !== true && player.status !== 'disabled')
+  const mapped = activePlayers.map(player => {
     let extra = getPendingPointsForUser(player.uid)
     
     if (isSimulating.value && simulatedMatchId.value && simulatedStatus.value === 'completed') {
@@ -655,6 +658,20 @@ const handleMatchesTabClick = () => {
     setTimeout(() => {
       scrollToCurrentDay()
     }, 150)
+  })
+}
+
+const handleLeaderboardTabClick = () => {
+  activeTab.value = 'leaderboard'
+  nextTick(() => {
+    window.scrollTo(0, 0)
+  })
+}
+
+const handleAdminTabClick = () => {
+  activeTab.value = 'admin'
+  nextTick(() => {
+    window.scrollTo(0, 0)
   })
 }
 
@@ -1570,8 +1587,50 @@ const addMatch = async () => {
   }
 }
 
+// Delete User Data permanently
+const deleteUserData = async (uid) => {
+  if (!confirm("Are you sure you want to permanently delete this user's profile and prediction data? This cannot be undone.")) return
+  adminError.value = ''
+  adminSuccess.value = ''
+  try {
+    // 1. Delete user from users collection
+    await deleteDoc(doc(db, 'users', uid))
+    
+    // 2. Delete user's guesses
+    const batch = writeBatch(db)
+    const guessesSnap = await getDocs(query(collection(db, 'guesses'), where('userId', '==', uid)))
+    guessesSnap.docs.forEach((d) => {
+      batch.delete(d.ref)
+    })
+    await batch.commit()
+    
+    adminSuccess.value = 'User profile and guess data permanently deleted!'
+  } catch (err) {
+    adminError.value = err.message
+  }
+}
+
+// Toggle User status (Leaderboard visibility)
+const toggleUserDisabledState = async (uid, isCurrentlyDisabled) => {
+  adminError.value = ''
+  adminSuccess.value = ''
+  try {
+    const userRef = doc(db, 'users', uid)
+    await updateDoc(userRef, {
+      disabled: !isCurrentlyDisabled
+    })
+    adminSuccess.value = `User status successfully updated!`
+  } catch (err) {
+    adminError.value = err.message
+  }
+}
+
 // Seed Database
 const seedDatabase = async () => {
+  const confirmation = prompt('WARNING: Seeding the database will delete ALL existing predictions/guesses and reset user scores to 0. This action is irreversible. To proceed, please type "SEED" in uppercase:')
+  if (confirmation !== 'SEED') {
+    return
+  }
   adminError.value = ''
   adminSuccess.value = ''
   try {
@@ -1833,7 +1892,7 @@ onUnmounted(() => {
       </div>
       
       <div class="user-bar">
-        <div class="user-points">
+        <div class="user-points" @click="handleLeaderboardTabClick">
           <span class="points-icon">🏆</span>
           <span class="points-val">{{ processedUserProfile?.points || 0 }}</span>
           <span class="points-label"> {{ (processedUserProfile?.points === 1) ? ' Point' : ' Points' }}</span>
@@ -1871,7 +1930,7 @@ onUnmounted(() => {
       <button 
         class="tab-btn" 
         :class="{ active: activeTab === 'leaderboard' }" 
-        @click="activeTab = 'leaderboard'"
+        @click="handleLeaderboardTabClick"
       >
         📊 Leaderboard
       </button>
@@ -1879,7 +1938,7 @@ onUnmounted(() => {
         v-if="user.email === 'mariuscm@gmail.com'" 
         class="tab-btn" 
         :class="{ active: activeTab === 'admin' }" 
-        @click="activeTab = 'admin'"
+        @click="handleAdminTabClick"
       >
         ⚙️ Admin
       </button>
@@ -2130,54 +2189,69 @@ onUnmounted(() => {
 
     <!-- Admin Panel (Only visible to mariuscm@gmail.com) -->
     <section v-if="activeTab === 'admin' && user.email === 'mariuscm@gmail.com'">
-      <!-- Seed Database Panel -->
-      <div class="admin-card">
-        <h3>🌱 Database Seeding</h3>
-        <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1rem;">
-          Populate or overwrite the database with group stage matches starting tomorrow (June 19, 2026).
-        </p>
-        <button class="btn btn-secondary" @click="seedDatabase">
-          Seed Group Stage Matches (June 19+)
+      <!-- Admin Sub-navigation -->
+      <div class="admin-sub-tabs">
+        <button 
+          class="sub-tab-btn" 
+          :class="{ active: activeAdminSubTab === 'users' }" 
+          @click="activeAdminSubTab = 'users'"
+        >
+          👥 Users
         </button>
-        <span style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-top: 0.5rem;">
-          Note: This resets current scores and deletes existing predictions.
-        </span>
+        <button 
+          class="sub-tab-btn" 
+          :class="{ active: activeAdminSubTab === 'scores' }" 
+          @click="activeAdminSubTab = 'scores'"
+        >
+          🔒 Lock Scores
+        </button>
+        <button 
+          class="sub-tab-btn" 
+          :class="{ active: activeAdminSubTab === 'setup' }" 
+          @click="activeAdminSubTab = 'setup'"
+        >
+          ⚙️ Database Setup
+        </button>
       </div>
 
-      <!-- Add New Match -->
-      <div class="admin-card">
-        <h3>➕ Add Custom Match</h3>
-        <form @submit.prevent="addMatch" style="display: flex; flex-direction: column; gap: 1rem;">
-          <div class="form-row">
-            <div class="form-group">
-              <label>Home Team</label>
-              <input type="text" v-model="newHomeTeam" placeholder="e.g. France" required />
+      <!-- Manage Users Card -->
+      <div v-if="activeAdminSubTab === 'users'" class="admin-card">
+        <h3>👥 Manage Users & Leaderboard Visibility</h3>
+        <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1rem;">
+          Enable or disable users. Disabled users are hidden from the leaderboard and grading calculations.
+        </p>
+        <div style="display: flex; flex-direction: column; gap: 0.5rem; max-height: 500px; overflow-y: auto; padding-right: 0.25rem;">
+          <div v-for="player in leaderboard" :key="player.uid" style="display: flex; align-items: center; justify-content: space-between; padding: 0.65rem 0.85rem; background: rgba(255,255,255,0.02); border-radius: var(--input-radius); border: 1px solid rgba(255,255,255,0.05); gap: 1rem;">
+            <div style="display: flex; flex-direction: column; gap: 0.15rem; min-width: 0;">
+              <span style="font-weight: 600; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">
+                {{ player.displayName || 'User' }}
+                <span v-if="player.disabled" style="font-size: 0.75rem; color: var(--danger); font-weight: 500; margin-left: 0.35rem;">(Disabled)</span>
+              </span>
+              <span style="font-size: 0.75rem; color: var(--text-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">{{ player.email }}</span>
             </div>
-            <div class="form-group">
-              <label>Away Team</label>
-              <input type="text" v-model="newAwayTeam" placeholder="e.g. Italy" required />
+            <div style="display: flex; gap: 0.5rem; flex-shrink: 0;">
+              <button 
+                class="btn" 
+                :class="player.disabled ? 'btn-secondary' : 'btn-danger'" 
+                style="width: auto; padding: 0.35rem 0.75rem; font-size: 0.8rem;" 
+                @click="toggleUserDisabledState(player.uid, player.disabled)"
+              >
+                {{ player.disabled ? 'Enable' : 'Disable' }}
+              </button>
+              <button 
+                class="btn btn-secondary" 
+                style="width: auto; padding: 0.35rem 0.75rem; font-size: 0.8rem; border-color: rgba(255, 77, 109, 0.3); color: var(--danger);" 
+                @click="deleteUserData(player.uid)"
+              >
+                Delete 🗑
+              </button>
             </div>
           </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Home Team Flag (Emoji)</label>
-              <input type="text" v-model="newHomeFlag" placeholder="e.g. 🇫🇷" style="text-align: center;" />
-            </div>
-            <div class="form-group">
-              <label>Away Team Flag (Emoji)</label>
-              <input type="text" v-model="newAwayFlag" placeholder="e.g. 🇮🇹" style="text-align: center;" />
-            </div>
-          </div>
-          <div class="form-group">
-            <label>Kickoff Date & Time (Local Timezone)</label>
-            <input type="datetime-local" v-model="newMatchDate" required />
-          </div>
-          <button type="submit" class="btn">Add Match</button>
-        </form>
+        </div>
       </div>
 
       <!-- Manage Matches Score Locker -->
-      <div class="admin-card">
+      <div v-if="activeAdminSubTab === 'scores'" class="admin-card">
         <h3>🔒 Manage Matches & Lock Scores</h3>
         <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1.5rem;">
           Input final scorelines and lock them. This evaluates all guesses and rewards points.
@@ -2227,6 +2301,52 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
+      </div>
+
+      <!-- Add New Match -->
+      <div v-if="activeAdminSubTab === 'setup'" class="admin-card">
+        <h3>➕ Add Custom Match</h3>
+        <form @submit.prevent="addMatch" style="display: flex; flex-direction: column; gap: 1rem;">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Home Team</label>
+              <input type="text" v-model="newHomeTeam" placeholder="e.g. France" required />
+            </div>
+            <div class="form-group">
+              <label>Away Team</label>
+              <input type="text" v-model="newAwayTeam" placeholder="e.g. Italy" required />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Home Team Flag (Emoji)</label>
+              <input type="text" v-model="newHomeFlag" placeholder="e.g. 🇫🇷" style="text-align: center;" />
+            </div>
+            <div class="form-group">
+              <label>Away Team Flag (Emoji)</label>
+              <input type="text" v-model="newAwayFlag" placeholder="e.g. 🇮🇹" style="text-align: center;" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Kickoff Date & Time (Local Timezone)</label>
+            <input type="datetime-local" v-model="newMatchDate" required />
+          </div>
+          <button type="submit" class="btn">Add Match</button>
+        </form>
+      </div>
+
+      <!-- Seed Database Panel -->
+      <div v-if="activeAdminSubTab === 'setup'" class="admin-card">
+        <h3>🌱 Database Seeding</h3>
+        <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1rem;">
+          Populate or overwrite the database with group stage matches starting tomorrow (June 19, 2026).
+        </p>
+        <button class="btn btn-secondary" @click="seedDatabase">
+          Seed Group Stage Matches (June 19+)
+        </button>
+        <span style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-top: 0.5rem;">
+          Note: This resets current scores and deletes existing predictions.
+        </span>
       </div>
     </section>
   </main>
