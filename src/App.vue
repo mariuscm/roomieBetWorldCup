@@ -70,6 +70,8 @@ let hasFetchedLiveScoresInitial = false
 // Version checking state
 const showUpdateBanner = ref(false)
 const remoteVersion = ref('')
+const showChangelog = ref(false)
+const remoteChangelog = ref([])
 let versionCheckIntervalId = null
 
 let lastVersionCheckTime = 0
@@ -86,6 +88,7 @@ async function checkAppVersion() {
       const data = await response.json()
       if (data.version) {
         remoteVersion.value = data.version
+        remoteChangelog.value = data.changelog || []
         if (data.version !== version) {
           showUpdateBanner.value = true
         } else {
@@ -2317,18 +2320,32 @@ onUnmounted(() => {
   </div>
 
   <!-- Update Notification Toast -->
-  <div v-if="showUpdateBanner" class="update-toast">
-    <div class="update-toast-content">
-      <div class="update-toast-title">
-        <span class="update-toast-sparkle">✨</span>
-        New Version Available!
+  <div v-if="showUpdateBanner" class="update-toast" :class="{ 'expanded': showChangelog }">
+    <div class="update-toast-main">
+      <div class="update-toast-content">
+        <div class="update-toast-title">
+          <span class="update-toast-sparkle">✨</span>
+          New Version Available!
+        </div>
+        <div class="update-toast-desc">
+          v{{ remoteVersion }} is ready. 
+          <a v-if="remoteChangelog.length > 0" href="#" class="changelog-toggle" @click.prevent="showChangelog = !showChangelog">
+            {{ showChangelog ? 'Hide changes ▴' : 'Show changes ▾' }}
+          </a>
+        </div>
       </div>
-      <div class="update-toast-desc">
-        v{{ remoteVersion }} is ready. Click reload to update.
-      </div>
+      <button class="update-toast-btn" @click="triggerReload">
+        Reload Now
+      </button>
     </div>
-    <button class="update-toast-btn" @click="triggerReload">
-      Reload Now
-    </button>
+
+    <!-- Collapsible Changelog List -->
+    <div v-if="showChangelog && remoteChangelog.length > 0" class="update-toast-changelog">
+      <ul>
+        <li v-for="(change, idx) in remoteChangelog" :key="idx">
+          {{ change }}
+        </li>
+      </ul>
+    </div>
   </div>
 </template>

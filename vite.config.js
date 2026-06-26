@@ -19,7 +19,10 @@ export default defineConfig({
           }
           fs.writeFileSync(
             path.resolve(distDir, 'version.json'),
-            JSON.stringify({ version: pkg.version }),
+            JSON.stringify({ 
+              version: pkg.version,
+              changelog: pkg.changelog || []
+            }),
             'utf-8'
           )
           console.log(`\x1b[32m✓\x1b[0m generated dist/version.json (v${pkg.version})`)

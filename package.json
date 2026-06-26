@@ -2,6 +2,10 @@
   "name": "worldcuproomiebet",
   "private": true,
   "version": "1.1.10",
+  "changelog": [
+    "Added self-service password recovery flow 🔑",
+    "Improved update banner with a collapsible changelog list 📋"
+  ],
   "type": "module",
   "scripts": {
     "dev": "vite",
