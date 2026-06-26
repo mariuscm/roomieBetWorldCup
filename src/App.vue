@@ -7,7 +7,8 @@ import {
   createUserWithEmailAndPassword, 
   signOut, 
   onAuthStateChanged,
-  updateProfile
+  updateProfile,
+  sendPasswordResetEmail
 } from 'firebase/auth'
 import { 
   collection, 
@@ -656,10 +657,13 @@ const handleMatchesTabClick = () => {
 
 // Auth Form State
 const isLogin = ref(true)
+const isForgotPassword = ref(false)
+const resetSent = ref(false)
 const email = ref('')
 const password = ref('')
 const displayName = ref('')
 const authError = ref('')
+const authSuccess = ref('')
 const authLoading = ref(false)
 
 // Admin Form State
@@ -1405,6 +1409,7 @@ const defaultMatches = [
 // Auth handlers
 const handleAuth = async () => {
   authError.value = ''
+  authSuccess.value = ''
   authLoading.value = true
   try {
     if (isLogin.value) {
@@ -1430,6 +1435,30 @@ const handleAuth = async () => {
     displayName.value = ''
   } catch (err) {
     authError.value = err.message
+  } finally {
+    authLoading.value = false
+  }
+}
+
+const handleResetPassword = async () => {
+  authError.value = ''
+  authSuccess.value = ''
+  if (!email.value) {
+    authError.value = 'Please enter your email address.'
+    return
+  }
+  authLoading.value = true
+  try {
+    await sendPasswordResetEmail(auth, email.value)
+    resetSent.value = true
+    authSuccess.value = 'Password reset email sent! Check your inbox (foarte probabil spam folder 🤓 ).'
+    email.value = ''
+  } catch (err) {
+    if (err.code === 'auth/user-not-found' || err.message?.includes('user-not-found')) {
+      authError.value = 'This email address is not registered.'
+    } else {
+      authError.value = err.message
+    }
   } finally {
     authLoading.value = false
   }
@@ -2203,15 +2232,32 @@ onUnmounted(() => {
   <main v-else class="auth-container">
     <div class="glass-card">
       <div class="auth-header">
-        <h2>{{ isLogin ? 'Welcome Back!' : 'Create Account' }}</h2>
-        <p>{{ isLogin ? 'Sign in to place your score predictions' : 'Register to play with your roommates' }}</p>
+        <h2>{{ isForgotPassword ? 'Reset Password' : (isLogin ? 'Welcome Back!' : 'Create Account') }}</h2>
+        <p>{{ isForgotPassword ? 'Enter your email to receive a password reset link' : (isLogin ? 'Sign in to place your score predictions' : 'Register to play with your roommates') }}</p>
       </div>
 
       <div v-if="authError" class="alert-banner alert-error">
         <span>⚠</span> {{ authError }}
       </div>
 
-      <form @submit.prevent="handleAuth" style="display: flex; flex-direction: column; gap: 0.5rem;">
+      <div v-if="authSuccess" class="alert-banner alert-success">
+        <span>✔</span> {{ authSuccess }}
+      </div>
+
+      <!-- Forgot Password Form -->
+      <form v-if="isForgotPassword" @submit.prevent="handleResetPassword" style="display: flex; flex-direction: column; gap: 0.5rem;">
+        <div class="form-group">
+          <label>Email Address</label>
+          <input type="email" v-model="email" placeholder="you@example.com" required />
+        </div>
+
+        <button type="submit" class="btn" :disabled="authLoading" style="margin-top: 1rem;">
+          {{ authLoading ? 'Sending...' : 'Send Reset Link' }}
+        </button>
+      </form>
+
+      <!-- Sign In / Sign Up Form -->
+      <form v-else @submit.prevent="handleAuth" style="display: flex; flex-direction: column; gap: 0.5rem;">
         <div v-if="!isLogin" class="form-group">
           <label>Display Name</label>
           <input type="text" v-model="displayName" placeholder="e.g. John Doe" required />
@@ -2233,14 +2279,22 @@ onUnmounted(() => {
       </form>
 
       <div class="auth-footer">
-        <span v-if="isLogin">
-          Don't have an account? 
-          <a href="#" @click.prevent="isLogin = false">Create one here</a>
-        </span>
-        <span v-else>
-          Already have an account? 
-          <a href="#" @click.prevent="isLogin = true">Sign in here</a>
-        </span>
+        <div v-if="isForgotPassword">
+          <a href="#" @click.prevent="isForgotPassword = false; isLogin = true; authError = ''; authSuccess = '';">Back to Sign In</a>
+        </div>
+        <div v-else style="display: flex; flex-direction: column; gap: 0.5rem; align-items: center;">
+          <span v-if="isLogin">
+            Don't have an account? 
+            <a href="#" @click.prevent="isLogin = false; authError = ''; authSuccess = '';">Create one here</a>
+          </span>
+          <span v-else>
+            Already have an account? 
+            <a href="#" @click.prevent="isLogin = true; authError = ''; authSuccess = '';">Sign in here</a>
+          </span>
+          <span v-if="isLogin" style="margin-top: 0.25rem;">
+            <a href="#" @click.prevent="isForgotPassword = true; authError = ''; authSuccess = '';">Forgot Password?</a>
+          </span>
+        </div>
       </div>
     </div>
   </main>
