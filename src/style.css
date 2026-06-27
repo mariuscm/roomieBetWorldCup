@@ -621,6 +621,7 @@ input:focus {
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.05);
   white-space: nowrap;
+  text-align: center;
 }
 
 /* Prediction Area */
@@ -788,8 +789,10 @@ input[type="number"] {
 .name-cell {
   font-weight: 600;
   display: flex;
-  align-items: center;
-  gap: 0.75rem;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.15rem;
 }
 
 .current-user-tag {
@@ -855,17 +858,38 @@ input[type="number"] {
   50% { background-color: var(--primary-glow); }
 }
 
-/* Notifications / Alert */
+/* Notifications / Alert (Floating Viewport-Fixed Toasts) */
 .alert-banner {
-  padding: 0.75rem 1.25rem;
-  border-radius: var(--input-radius);
-  margin-bottom: 1.5rem;
+  position: fixed;
+  top: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  padding: 0.85rem 1.5rem;
+  border-radius: var(--btn-radius);
   font-size: 0.9rem;
   font-weight: 500;
   display: flex;
   align-items: center;
   gap: 0.5rem;
   border: 1px solid transparent;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  max-width: 90%;
+  width: max-content;
+  animation: toast-slide-in 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes toast-slide-in {
+  from {
+    transform: translate(-50%, -20px);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, 0);
+    opacity: 1;
+  }
 }
 
 .alert-success {
@@ -879,6 +903,7 @@ input[type="number"] {
   color: var(--danger);
   border-color: rgba(255, 77, 109, 0.2);
 }
+
 
 .empty-state {
   text-align: center;
@@ -1619,5 +1644,87 @@ input[type="number"] {
   
   .sub-tab-btn {
     width: 100%;
+  }
+}
+
+/* Premium Switch Toggle */
+.switch-control {
+  position: relative;
+  display: inline-block;
+  width: 50px;
+  height: 28px;
+}
+
+.switch-control input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.switch-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(255, 255, 255, 0.05);
+  transition: var(--transition-smooth);
+  border-radius: 34px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.switch-slider:before {
+  position: absolute;
+  content: "";
+  height: 20px;
+  width: 20px;
+  left: 3px;
+  bottom: 3px;
+  background-color: var(--text-secondary);
+  transition: var(--transition-smooth);
+  border-radius: 50%;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.switch-control input:checked + .switch-slider {
+  background-color: rgba(0, 245, 155, 0.15);
+  border-color: var(--primary);
+}
+
+.switch-control input:checked + .switch-slider:before {
+  transform: translateX(22px);
+  background-color: var(--primary);
+  box-shadow: 0 0 8px var(--primary-glow);
+}
+
+/* Local slide-in animation for inline elements */
+@keyframes local-slide-in {
+  from {
+    transform: translateY(-8px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.local-slide-in {
+  animation: local-slide-in 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Mobile stacking for detailed friend predictions */
+@media (max-width: 480px) {
+  .predictions-expanded-list .prediction-row-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+    padding: 0.5rem 0;
+  }
+  .predictions-expanded-list .pred-player-score {
+    width: 100%;
+    justify-content: space-between;
+    font-size: 0.8rem;
   }
 }

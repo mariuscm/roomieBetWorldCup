@@ -36,6 +36,9 @@ const allGuesses = ref([])
 const expandedMatches = ref({})
 const predictionInputs = ref({})
 const leaderboard = ref([])
+const leaderboardFilter = ref('overall') // 'overall' | 'group' | 'knockout'
+const knockoutStageEnabled = ref(false)
+let settingsUnsub = null
 const collapsedDays = ref({})
 const hasScrolledToCurrent = ref(false)
 const activeTab = ref('matches') // 'matches' | 'leaderboard' | 'admin'
@@ -192,6 +195,9 @@ const fetchESPNLiveScores = async () => {
       const awayNorm = getNormalizedTeamName(espnAwayTeam)
       
       const matchedLocalMatch = matches.value.find(m => {
+        if (m.espnEventId && m.espnEventId === event.id) {
+          return true
+        }
         const localHomeNorm = getNormalizedTeamName(m.homeTeam)
         const localAwayNorm = getNormalizedTeamName(m.awayTeam)
         return localHomeNorm === homeNorm && localAwayNorm === awayNorm
@@ -256,6 +262,17 @@ const processedMatches = computed(() => {
   })
 })
 
+const isAdminUser = computed(() => {
+  return user.value && user.value.email === 'mariuscm@gmail.com'
+})
+
+const visibleMatches = computed(() => {
+  if (knockoutStageEnabled.value) {
+    return processedMatches.value
+  }
+  return processedMatches.value.filter(m => m.stage !== 'knockout')
+})
+
 const pendingCompletedMatches = computed(() => {
   const list = []
   processedMatches.value.forEach(pm => {
@@ -303,23 +320,58 @@ const processedUserProfile = computed(() => {
 const processedLeaderboard = computed(() => {
   const activePlayers = leaderboard.value.filter(player => player.disabled !== true && player.status !== 'disabled')
   const mapped = activePlayers.map(player => {
-    let extra = getPendingPointsForUser(player.uid)
+    let pendingGroup = 0
+    let pendingKnockout = 0
     
+    pendingCompletedMatches.value.forEach(match => {
+      const guess = allGuesses.value.find(g => g.matchId === match.id && g.userId === player.uid)
+      if (guess && guess.homeGuess !== null && guess.awayGuess !== null) {
+        const isCorrect = Number(guess.homeGuess) === Number(match.homeScore) && 
+                          Number(guess.awayGuess) === Number(match.awayScore)
+        if (isCorrect) {
+          if (match.stage === 'knockout') {
+            pendingKnockout += 1
+          } else {
+            pendingGroup += 1
+          }
+        }
+      }
+    })
+
+    let simGroup = 0
+    let simKnockout = 0
     if (isSimulating.value && simulatedMatchId.value && simulatedStatus.value === 'completed') {
+      const match = matches.value.find(m => m.id === simulatedMatchId.value)
       const guess = allGuesses.value.find(g => g.matchId === simulatedMatchId.value && g.userId === player.uid)
       const isCorrect = guess && Number(guess.homeGuess) === Number(simulatedHomeScore.value) && Number(guess.awayGuess) === Number(simulatedAwayScore.value)
       if (isCorrect) {
-        extra += 1
+        if (match && match.stage === 'knockout') {
+          simKnockout += 1
+        } else {
+          simGroup += 1
+        }
       }
     }
-    
+
+    const groupPts = (player.groupPoints !== undefined ? player.groupPoints : (player.points || 0)) + pendingGroup + simGroup
+    const knockoutPts = (player.knockoutPoints !== undefined ? player.knockoutPoints : 0) + pendingKnockout + simKnockout
+    const overallPts = (player.points || 0) + pendingGroup + pendingKnockout + simGroup + simKnockout
+
     return {
       ...player,
-      points: (player.points || 0) + extra
+      groupPointsDisplay: groupPts,
+      knockoutPointsDisplay: knockoutPts,
+      pointsDisplay: overallPts
     }
   })
   
-  return [...mapped].sort((a, b) => (b.points || 0) - (a.points || 0))
+  if (leaderboardFilter.value === 'group') {
+    return [...mapped].sort((a, b) => b.groupPointsDisplay - a.groupPointsDisplay)
+  } else if (leaderboardFilter.value === 'knockout') {
+    return [...mapped].sort((a, b) => b.knockoutPointsDisplay - a.knockoutPointsDisplay)
+  } else {
+    return [...mapped].sort((a, b) => b.pointsDisplay - a.pointsDisplay)
+  }
 })
 
 const startSimulation = () => {
@@ -390,9 +442,46 @@ const userGuesses = computed(() => {
     if (match.status === 'completed') {
       const guess = guessesObj[match.id]
       if (guess && guess.homeGuess !== null && guess.awayGuess !== null && guess.pointsEarned === null) {
-        const isCorrect = Number(guess.homeGuess) === Number(match.homeScore) && 
-                          Number(guess.awayGuess) === Number(match.awayScore)
-        guess.pointsEarned = isCorrect ? 1 : 0
+        if (match.stage === 'knockout') {
+          const homeScore90 = match.homeScore90 !== undefined && match.homeScore90 !== null ? match.homeScore90 : match.homeScore;
+          const awayScore90 = match.awayScore90 !== undefined && match.awayScore90 !== null ? match.awayScore90 : match.awayScore;
+          const homeScore120 = match.homeScore120 !== undefined && match.homeScore120 !== null ? match.homeScore120 : match.homeScore;
+          const awayScore120 = match.awayScore120 !== undefined && match.awayScore120 !== null ? match.awayScore120 : match.awayScore;
+          const homeShootoutScore = match.homeShootoutScore !== undefined ? match.homeShootoutScore : null;
+          const awayShootoutScore = match.awayShootoutScore !== undefined ? match.awayShootoutScore : null;
+          const shootoutWinner = match.shootoutWinner || null;
+
+          const homeGuess90 = guess.homeGuess90 !== undefined ? guess.homeGuess90 : guess.homeGuess;
+          const awayGuess90 = guess.awayGuess90 !== undefined ? guess.awayGuess90 : guess.awayGuess;
+          const homeGuess120 = guess.homeGuess120 !== undefined ? guess.homeGuess120 : homeGuess90;
+          const awayGuess120 = guess.awayGuess120 !== undefined ? guess.awayGuess120 : awayGuess90;
+          const shootoutWinnerGuess = guess.shootoutWinnerGuess || null;
+          const homeShootoutGuess = guess.homeShootoutGuess !== undefined ? guess.homeShootoutGuess : null;
+          const awayShootoutGuess = guess.awayShootoutGuess !== undefined ? guess.awayShootoutGuess : null;
+
+          const isCorrect90 = Number(homeGuess90) === Number(homeScore90) && Number(awayGuess90) === Number(awayScore90);
+          const isDraw90 = Number(homeScore90) === Number(awayScore90);
+          const isGuessDraw90 = Number(homeGuess90) === Number(awayGuess90);
+
+          const isCorrect120 = isDraw90 && isGuessDraw90 && (Number(homeGuess120) === Number(homeScore120) && Number(awayGuess120) === Number(awayScore120));
+          const isDraw120 = isDraw90 && (Number(homeScore120) === Number(awayScore120));
+          const isGuessDraw120 = isGuessDraw90 && (Number(homeGuess120) === Number(awayGuess120));
+
+          const isCorrectWinner = isDraw120 && isGuessDraw120 && (shootoutWinnerGuess === shootoutWinner);
+          const isCorrectShootoutScore = isDraw120 && isGuessDraw120 && 
+                                        (Number(homeShootoutGuess) === Number(homeShootoutScore) && Number(awayShootoutGuess) === Number(awayShootoutScore));
+
+          let pts = 0;
+          if (isCorrect90) pts += 1.0;
+          if (isCorrect120) pts += 1.0;
+          if (isCorrectWinner) pts += 0.5;
+          if (isCorrectShootoutScore) pts += 1.5;
+          guess.pointsEarned = pts;
+        } else {
+          const isCorrect = Number(guess.homeGuess) === Number(match.homeScore) && 
+                            Number(guess.awayGuess) === Number(match.awayScore)
+          guess.pointsEarned = isCorrect ? 1 : 0
+        }
       }
     }
   })
@@ -438,6 +527,13 @@ const getGuessesForMatch = (matchId) => {
         playerName: player.displayName,
         homeGuess: guess?.homeGuess,
         awayGuess: guess?.awayGuess,
+        homeGuess90: guess?.homeGuess90,
+        awayGuess90: guess?.awayGuess90,
+        homeGuess120: guess?.homeGuess120,
+        awayGuess120: guess?.awayGuess120,
+        shootoutWinnerGuess: guess?.shootoutWinnerGuess,
+        homeShootoutGuess: guess?.homeShootoutGuess,
+        awayShootoutGuess: guess?.awayShootoutGuess,
         pointsEarned: pointsEarned
       }
     })
@@ -448,8 +544,23 @@ const getOtherGuessesCount = (matchId) => {
 }
 
 const getPlayerRank = (player) => {
-  const points = player.points || 0
-  const higherCount = processedLeaderboard.value.filter(p => (p.points || 0) > points).length
+  let points = player.pointsDisplay || 0
+  if (leaderboardFilter.value === 'group') {
+    points = player.groupPointsDisplay || 0
+  } else if (leaderboardFilter.value === 'knockout') {
+    points = player.knockoutPointsDisplay || 0
+  }
+  
+  const higherCount = processedLeaderboard.value.filter(p => {
+    let pPts = p.pointsDisplay || 0
+    if (leaderboardFilter.value === 'group') {
+      pPts = p.groupPointsDisplay || 0
+    } else if (leaderboardFilter.value === 'knockout') {
+      pPts = p.knockoutPointsDisplay || 0
+    }
+    return pPts > points
+  }).length
+  
   return higherCount + 1
 }
 
@@ -460,13 +571,47 @@ const isPredictionSaved = (matchId) => {
   if (!guess || !input) return false
   if (guess.homeGuess === null || guess.awayGuess === null || guess.homeGuess === undefined || guess.awayGuess === undefined) return false
   if (input.homeGuess === null || input.awayGuess === null || input.homeGuess === undefined || input.awayGuess === undefined) return false
-  return Number(guess.homeGuess) === Number(input.homeGuess) && Number(guess.awayGuess) === Number(input.awayGuess)
+  
+  const standardMatch = Number(guess.homeGuess) === Number(input.homeGuess) && Number(guess.awayGuess) === Number(input.awayGuess)
+  
+  const match = matches.value.find(m => m.id === matchId)
+  if (match && match.stage === 'knockout') {
+    if (Number(input.homeGuess) === Number(input.awayGuess)) {
+      const homeG120 = guess.homeGuess120 !== undefined ? guess.homeGuess120 : guess.homeGuess;
+      const awayG120 = guess.awayGuess120 !== undefined ? guess.awayGuess120 : guess.awayGuess;
+      const inputHome120 = input.homeGuess120 !== undefined ? input.homeGuess120 : input.homeGuess;
+      const inputAway120 = input.awayGuess120 !== undefined ? input.awayGuess120 : input.awayGuess;
+      
+      const etMatch = Number(homeG120) === Number(inputHome120) && Number(awayG120) === Number(inputAway120)
+      if (!etMatch) return false
+      
+      if (Number(inputHome120) === Number(inputAway120)) {
+        if (guess.shootoutWinnerGuess !== input.shootoutWinnerGuess) return false
+        
+        const homePen = guess.homeShootoutGuess !== undefined && guess.homeShootoutGuess !== null ? guess.homeShootoutGuess : '';
+        const awayPen = guess.awayShootoutGuess !== undefined && guess.awayShootoutGuess !== null ? guess.awayShootoutGuess : '';
+        const inputHomePen = input.homeShootoutGuess !== undefined && input.homeShootoutGuess !== null ? input.homeShootoutGuess : '';
+        const inputAwayPen = input.awayShootoutGuess !== undefined && input.awayShootoutGuess !== null ? input.awayShootoutGuess : '';
+        if (String(homePen) !== String(inputHomePen) || String(awayPen) !== String(inputAwayPen)) return false
+      }
+    }
+  }
+  
+  return standardMatch
 }
 
 watch(matches, (newMatches) => {
   newMatches.forEach(match => {
     if (!predictionInputs.value[match.id]) {
-      predictionInputs.value[match.id] = { homeGuess: null, awayGuess: null }
+      predictionInputs.value[match.id] = { 
+        homeGuess: null, 
+        awayGuess: null,
+        homeGuess120: null,
+        awayGuess120: null,
+        shootoutWinnerGuess: '',
+        homeShootoutGuess: '',
+        awayShootoutGuess: ''
+      }
     }
   })
   
@@ -475,6 +620,12 @@ watch(matches, (newMatches) => {
     fetchESPNLiveScores()
   }
 }, { deep: true })
+
+watch(knockoutStageEnabled, (enabled) => {
+  if (!enabled && leaderboardFilter.value === 'knockout') {
+    leaderboardFilter.value = 'overall'
+  }
+})
 
 // Date helpers for grouping matches
 const getLocalDateString = (timestamp) => {
@@ -522,7 +673,7 @@ const formatTime = (timestamp) => {
 
 const groupedMatches = computed(() => {
   const groupsMap = {}
-  processedMatches.value.forEach(match => {
+  visibleMatches.value.forEach(match => {
     const dayKey = getLocalDateString(match.date)
     if (!groupsMap[dayKey]) {
       groupsMap[dayKey] = []
@@ -695,6 +846,7 @@ const newMatchDate = ref('')
 const adminError = ref('')
 const adminSuccess = ref('')
 const adminScores = ref({}) // key: matchId -> { homeScore, awayScore }
+const showClearConfirm = ref({}) // key: matchId -> boolean
 
 // Realtime subscriptions cleanup
 let matchesUnsub = null
@@ -1446,7 +1598,9 @@ const handleAuth = async () => {
         uid: userCredential.user.uid,
         displayName: displayName.value,
         email: email.value,
-        points: 0
+        points: 0,
+        groupPoints: 0,
+        knockoutPoints: 0
       })
     }
     // Reset forms
@@ -1521,6 +1675,180 @@ const formatDate = (matchDate) => {
   })
 }
 
+// Sync default extra time score to the regular time score if regular time is a draw
+const syncDefaultExtraTime = (matchId) => {
+  const input = predictionInputs.value[matchId]
+  if (!input) return
+  
+  const h = input.homeGuess
+  const a = input.awayGuess
+  
+  if (typeof h === 'number' && typeof a === 'number' && h === a) {
+    input.homeGuess120 = h
+    input.awayGuess120 = a
+  } else {
+    input.homeGuess120 = null
+    input.awayGuess120 = null
+    input.shootoutWinnerGuess = ''
+    input.homeShootoutGuess = ''
+    input.awayShootoutGuess = ''
+  }
+}
+
+const isExtraTimeValid = (matchId) => {
+  const input = predictionInputs.value[matchId]
+  if (!input) return false
+  
+  const h90 = input.homeGuess
+  const a90 = input.awayGuess
+  const h120 = input.homeGuess120
+  const a120 = input.awayGuess120
+  
+  if (h90 === null || a90 === null || h90 === undefined || a90 === undefined || h90 === '' || a90 === '') return false
+  if (h120 === null || a120 === null || h120 === undefined || a120 === undefined || h120 === '' || a120 === '') return false
+  
+  const h90Num = parseFloat(h90)
+  const a90Num = parseFloat(a90)
+  const h120Num = parseFloat(h120)
+  const a120Num = parseFloat(a120)
+  
+  if (isNaN(h90Num) || isNaN(a90Num) || isNaN(h120Num) || isNaN(a120Num)) return false
+  if (!Number.isInteger(h120Num) || !Number.isInteger(a120Num)) return false
+  
+  return h120Num >= h90Num && a120Num >= a90Num
+}
+
+const triggerClearConfirm = (matchId, val) => {
+  showClearConfirm.value[matchId] = val
+}
+
+const clearGuess = async (matchId) => {
+  const match = matches.value.find(m => m.id === matchId)
+  if (!match || matchHasStarted(match.date)) return
+
+  try {
+    const guessId = `${user.value.uid}_${matchId}`
+    const guessRef = doc(db, 'guesses', guessId)
+    
+    await deleteDoc(guessRef)
+
+    predictionInputs.value[matchId] = {
+      homeGuess: null,
+      awayGuess: null,
+      homeGuess120: null,
+      awayGuess120: null,
+      shootoutWinnerGuess: '',
+      homeShootoutGuess: '',
+      awayShootoutGuess: ''
+    }
+    
+    showClearConfirm.value[matchId] = false
+    adminSuccess.value = 'Predictions cleared!'
+    setTimeout(() => adminSuccess.value = '', 3000)
+  } catch (err) {
+    adminError.value = `Failed to clear predictions: ${err.message}`
+    setTimeout(() => adminError.value = '', 4000)
+  }
+}
+
+const flagToCode = (flag) => {
+  if (!flag) return ''
+  if (flag === '🏴\u200d󠁢󠁳󠁣󠁴󠁿') return 'SCT'
+  if (flag === '🏴\u200d󠁢󠁥󠁮󠁧󠁿') return 'ENG'
+  if (flag === '🏴\u200d󠁢󠁷󠁬󠁳󠁿') return 'WLS'
+  
+  const chars = [...flag]
+  const code = chars.map(char => {
+    const cp = char.codePointAt(0)
+    if (cp >= 0x1F1E6 && cp <= 0x1F1FF) {
+      return String.fromCharCode(cp - 0x1F1E6 + 65)
+    }
+    return ''
+  }).join('')
+  return code
+}
+
+const formatFriendPredictionSegments = (pred, match) => {
+  if (!pred) return [{ text: 'No prediction', isCorrect: false, isTextMuted: true }]
+  
+  const h90 = pred.homeGuess90 !== undefined ? pred.homeGuess90 : pred.homeGuess
+  const a90 = pred.awayGuess90 !== undefined ? pred.awayGuess90 : pred.awayGuess
+  
+  if (h90 === null || h90 === undefined || h90 === '') {
+    return [{ text: 'No prediction', isCorrect: false, isTextMuted: true }]
+  }
+
+  const segments = []
+  
+  // Helpers to resolve match scores safely
+  const matchH90 = match.homeScore90 !== undefined && match.homeScore90 !== null ? match.homeScore90 : match.homeScore
+  const matchA90 = match.awayScore90 !== undefined && match.awayScore90 !== null ? match.awayScore90 : match.awayScore
+  const matchH120 = match.homeScore120 !== undefined && match.homeScore120 !== null ? match.homeScore120 : match.homeScore
+  const matchA120 = match.awayScore120 !== undefined && match.awayScore120 !== null ? match.awayScore120 : match.awayScore
+
+  // Component A: 90m Score
+  const compA = `${h90}-${a90}`
+  const isCorrectA = match.status === 'completed' && Number(h90) === Number(matchH90) && Number(a90) === Number(matchA90)
+  segments.push({ text: compA, isCorrect: isCorrectA })
+    
+  if (match.stage !== 'knockout') {
+    return segments
+  }
+  
+  // If 90m is NOT a draw, don't show the extra time/shootout components and slashes
+  if (Number(h90) !== Number(a90)) {
+    return segments
+  }
+  
+  // Component B: 120m Score
+  let compB = '-'
+  let isCorrectB = false
+  if (pred.homeGuess120 !== null && pred.homeGuess120 !== undefined && pred.homeGuess120 !== '') {
+    compB = `${pred.homeGuess120}-${pred.awayGuess120}`
+    isCorrectB = match.status === 'completed' && Number(pred.homeGuess120) === Number(matchH120) && Number(pred.awayGuess120) === Number(matchA120)
+  }
+  
+  segments.push({ text: ' / ', isSeparator: true })
+  segments.push({ text: compB, isCorrect: isCorrectB })
+  
+  // If 120m is decisive (NOT a draw), don't show the shootout components and slashes
+  if (pred.homeGuess120 !== null && pred.homeGuess120 !== undefined && pred.homeGuess120 !== '') {
+    if (Number(pred.homeGuess120) !== Number(pred.awayGuess120)) {
+      return segments
+    }
+  }
+  
+  // Component C: Shootout Winner Flag and Two Letter Code
+  let compC = '-'
+  let isCorrectC = false
+  if (Number(pred.homeGuess120) === Number(pred.awayGuess120) && pred.homeGuess120 !== null && pred.homeGuess120 !== undefined && pred.homeGuess120 !== '') {
+    if (pred.shootoutWinnerGuess) {
+      const winnerFlag = pred.shootoutWinnerGuess === 'home' ? match.homeFlag : match.awayFlag
+      const winnerCode = flagToCode(winnerFlag)
+      compC = winnerFlag ? `${winnerFlag} ${winnerCode}` : '-'
+      isCorrectC = match.status === 'completed' && pred.shootoutWinnerGuess === match.shootoutWinner
+    }
+  }
+  
+  segments.push({ text: ' / ', isSeparator: true })
+  segments.push({ text: compC, isCorrect: isCorrectC })
+  
+  // Component D: Shootout score
+  let compD = '-'
+  let isCorrectD = false
+  if (Number(pred.homeGuess120) === Number(pred.awayGuess120) && pred.homeGuess120 !== null && pred.homeGuess120 !== undefined && pred.homeGuess120 !== '') {
+    if (pred.homeShootoutGuess !== null && pred.homeShootoutGuess !== undefined && pred.homeShootoutGuess !== '') {
+      compD = `${pred.homeShootoutGuess}-${pred.awayShootoutGuess}`
+      isCorrectD = match.status === 'completed' && Number(pred.homeShootoutGuess) === Number(match.homeShootoutScore) && Number(pred.awayShootoutGuess) === Number(match.awayShootoutScore)
+    }
+  }
+  
+  segments.push({ text: ' / ', isSeparator: true })
+  segments.push({ text: compD, isCorrect: isCorrectD })
+  
+  return segments
+}
+
 // User Guesses Submission
 const submitGuess = async (matchId) => {
   const guess = predictionInputs.value[matchId]
@@ -1528,26 +1856,116 @@ const submitGuess = async (matchId) => {
     return
   }
   
+  const match = matches.value.find(m => m.id === matchId)
+  const isKnockout = match && match.stage === 'knockout'
+
   const homeVal = parseFloat(guess.homeGuess)
   const awayVal = parseFloat(guess.awayGuess)
-  
-  if (!Number.isInteger(homeVal) || !Number.isInteger(awayVal) || homeVal < 0 || homeVal > 15 || awayVal < 0 || awayVal > 15) {
-    adminError.value = 'Predictions must be whole numbers between 0 and 15.'
+
+  // Validate inputs
+  const validateScore = (val) => Number.isInteger(val) && val >= 0
+  if (!validateScore(homeVal) || !validateScore(awayVal)) {
+    adminError.value = 'Predictions must be whole numbers.'
     setTimeout(() => adminError.value = '', 4000)
     return
+  }
+
+  const homeG90 = parseInt(guess.homeGuess)
+  const awayG90 = parseInt(guess.awayGuess)
+
+  let homeG120 = homeG90
+  let awayG120 = awayG90
+  let shootoutWinnerGuess = null
+  let homeShootoutGuess = null
+  let awayShootoutGuess = null
+
+  if (isKnockout) {
+    if (homeG90 === awayG90) {
+      const home120Val = guess.homeGuess120 !== undefined && guess.homeGuess120 !== null && guess.homeGuess120 !== '' ? parseFloat(guess.homeGuess120) : homeVal
+      const away120Val = guess.awayGuess120 !== undefined && guess.awayGuess120 !== null && guess.awayGuess120 !== '' ? parseFloat(guess.awayGuess120) : awayVal
+
+      if (!validateScore(home120Val) || !validateScore(away120Val)) {
+        adminError.value = 'Extra time scores must be whole numbers.'
+        setTimeout(() => adminError.value = '', 4000)
+        return
+      }
+      if (home120Val < homeVal || away120Val < awayVal) {
+        adminError.value = 'Extra time goals cannot be less than 90 minutes goals!'
+        setTimeout(() => adminError.value = '', 4000)
+        return
+      }
+
+      homeG120 = parseInt(guess.homeGuess120)
+      awayG120 = parseInt(guess.awayGuess120)
+      
+      if (homeG120 === awayG120) {
+        shootoutWinnerGuess = guess.shootoutWinnerGuess || null
+        if (!shootoutWinnerGuess) {
+          adminError.value = 'Please select a shootout winner.'
+          setTimeout(() => adminError.value = '', 4000)
+          return
+        }
+
+        const hasHomePen = guess.homeShootoutGuess !== undefined && guess.homeShootoutGuess !== null && guess.homeShootoutGuess !== ''
+        const hasAwayPen = guess.awayShootoutGuess !== undefined && guess.awayShootoutGuess !== null && guess.awayShootoutGuess !== ''
+
+        if (hasHomePen || hasAwayPen) {
+          if (!hasHomePen || !hasAwayPen) {
+            adminError.value = 'Please enter shootout scores for both teams, or leave both empty.'
+            setTimeout(() => adminError.value = '', 4000)
+            return
+          }
+
+          const penHomeVal = parseFloat(guess.homeShootoutGuess)
+          const penAwayVal = parseFloat(guess.awayShootoutGuess)
+          if (!validateScore(penHomeVal) || !validateScore(penAwayVal)) {
+            adminError.value = 'Shootout scores must be whole numbers.'
+            setTimeout(() => adminError.value = '', 4000)
+            return
+          }
+
+          homeShootoutGuess = parseInt(guess.homeShootoutGuess)
+          awayShootoutGuess = parseInt(guess.awayShootoutGuess)
+
+          if (homeShootoutGuess === awayShootoutGuess) {
+            adminError.value = 'Shootout score cannot be a draw!'
+            setTimeout(() => adminError.value = '', 4000)
+            return
+          }
+
+          if (shootoutWinnerGuess === 'home' && homeShootoutGuess < awayShootoutGuess) {
+            adminError.value = `Shootout score must favor the selected winner (${match.homeTeam}).`
+            setTimeout(() => adminError.value = '', 4000)
+            return
+          }
+          if (shootoutWinnerGuess === 'away' && awayShootoutGuess < homeShootoutGuess) {
+            adminError.value = `Shootout score must favor the selected winner (${match.awayTeam}).`
+            setTimeout(() => adminError.value = '', 4000)
+            return
+          }
+        }
+      }
+    }
   }
   
   try {
     const guessId = `${user.value.uid}_${matchId}`
-    await setDoc(doc(db, 'guesses', guessId), {
+    const guessData = {
       userId: user.value.uid,
       matchId: matchId,
-      homeGuess: parseInt(guess.homeGuess),
-      awayGuess: parseInt(guess.awayGuess),
+      homeGuess: homeG90,
+      awayGuess: awayG90,
+      homeGuess90: homeG90,
+      awayGuess90: awayG90,
+      homeGuess120: homeG120,
+      awayGuess120: awayG120,
+      shootoutWinnerGuess: shootoutWinnerGuess,
+      homeShootoutGuess: homeShootoutGuess,
+      awayShootoutGuess: awayShootoutGuess,
       pointsEarned: null,
       submittedAt: Timestamp.now()
-    })
-    // Local confirmation
+    }
+    await setDoc(doc(db, 'guesses', guessId), guessData)
     adminSuccess.value = 'Guess saved!'
     setTimeout(() => adminSuccess.value = '', 3000)
   } catch (err) {
@@ -1593,18 +2011,16 @@ const deleteUserData = async (uid) => {
   adminError.value = ''
   adminSuccess.value = ''
   try {
-    // 1. Delete user from users collection
     await deleteDoc(doc(db, 'users', uid))
     
-    // 2. Delete user's guesses
-    const batch = writeBatch(db)
     const guessesSnap = await getDocs(query(collection(db, 'guesses'), where('userId', '==', uid)))
-    guessesSnap.docs.forEach((d) => {
-      batch.delete(d.ref)
+    const batch = writeBatch(db)
+    guessesSnap.docs.forEach((doc) => {
+      batch.delete(doc.ref)
     })
     await batch.commit()
     
-    adminSuccess.value = 'User profile and guess data permanently deleted!'
+    adminSuccess.value = 'User profile and all guesses permanently deleted!'
   } catch (err) {
     adminError.value = err.message
   }
@@ -1625,7 +2041,128 @@ const toggleUserDisabledState = async (uid, isCurrentlyDisabled) => {
   }
 }
 
-// Seed Database
+const seedTestFriendPredictions = async () => {
+  adminError.value = ''
+  adminSuccess.value = ''
+  try {
+    const matchId = "test-friends-match-1"
+    
+    await setDoc(doc(db, "matches", matchId), {
+      homeTeam: "Spain",
+      awayTeam: "Germany",
+      homeFlag: "🇪🇸",
+      awayFlag: "🇩🇪",
+      stage: "knockout",
+      status: "completed",
+      date: Timestamp.fromDate(new Date(Date.now() - 3 * 3600 * 1000)), // 3 hours ago
+      homeScore: 2,
+      awayScore: 2,
+      homeScore90: 2,
+      awayScore90: 2,
+      homeScore120: 2,
+      awayScore120: 2,
+      shootoutWinner: "home",
+      homeShootoutScore: 5,
+      awayShootoutScore: 4
+    })
+
+    const testUsers = [
+      { uid: "test_user_a", displayName: "Alice (Test)", points: 5, groupPoints: 5, knockoutPoints: 0 },
+      { uid: "test_user_b", displayName: "Bob (Test)", points: 10, groupPoints: 8, knockoutPoints: 2 },
+      { uid: "test_user_c", displayName: "Charlie (Test)", points: 3, groupPoints: 3, knockoutPoints: 0 }
+    ]
+    for (const tu of testUsers) {
+      await setDoc(doc(db, "users", tu.uid), tu, { merge: true })
+    }
+
+    const guesses = [
+      {
+        id: `test_user_a_${matchId}`,
+        userId: "test_user_a",
+        playerName: "Alice (Test)",
+        matchId: matchId,
+        homeGuess: 3,
+        awayGuess: 1,
+        homeGuess120: null,
+        awayGuess120: null,
+        shootoutWinnerGuess: "",
+        homeShootoutGuess: "",
+        awayShootoutGuess: "",
+        pointsEarned: 0
+      },
+      {
+        id: `test_user_b_${matchId}`,
+        userId: "test_user_b",
+        playerName: "Bob (Test)",
+        matchId: matchId,
+        homeGuess: 2,
+        awayGuess: 2,
+        homeGuess120: 2,
+        awayGuess120: 2,
+        shootoutWinnerGuess: "home",
+        homeShootoutGuess: 5,
+        awayShootoutGuess: 4,
+        pointsEarned: 4
+      },
+      {
+        id: `test_user_c_${matchId}`,
+        userId: "test_user_c",
+        playerName: "Charlie (Test)",
+        matchId: matchId,
+        homeGuess: 2,
+        awayGuess: 2,
+        homeGuess120: 4,
+        awayGuess120: 4,
+        shootoutWinnerGuess: "home",
+        homeShootoutGuess: "",
+        awayShootoutGuess: "",
+        pointsEarned: 1.5
+      }
+    ]
+    for (const g of guesses) {
+      await setDoc(doc(db, "guesses", g.id), g, { merge: true })
+    }
+
+    adminSuccess.value = "Test match Spain vs Germany and predictions seeded successfully! Look for it on the Matches tab."
+    setTimeout(() => adminSuccess.value = "", 5000)
+  } catch (err) {
+    adminError.value = `Failed to seed test predictions: ${err.message}`
+    setTimeout(() => adminError.value = "", 5000)
+  }
+}
+
+const cleanTestData = async () => {
+  adminError.value = ''
+  adminSuccess.value = ''
+  try {
+    const matchId = "test-friends-match-1"
+    
+    // 1. Delete test match
+    await deleteDoc(doc(db, "matches", matchId))
+    
+    // 2. Delete test users
+    const testUsers = ["test_user_a", "test_user_b", "test_user_c"]
+    for (const uid of testUsers) {
+      await deleteDoc(doc(db, "users", uid))
+    }
+    
+    // 3. Delete guesses for test match and test users
+    const guessesSnap = await getDocs(query(collection(db, 'guesses'), where('matchId', '==', matchId)))
+    const batch = writeBatch(db)
+    guessesSnap.docs.forEach((doc) => {
+      batch.delete(doc.ref)
+    })
+    await batch.commit()
+    
+    adminSuccess.value = "Test match, test users, and test predictions removed successfully!"
+    setTimeout(() => adminSuccess.value = "", 5000)
+  } catch (err) {
+    adminError.value = "Error cleaning test data: " + err.message
+    setTimeout(() => adminError.value = "", 5000)
+  }
+}
+
+// Admin Seed matches in Firestore database
 const seedDatabase = async () => {
   const confirmation = prompt('WARNING: Seeding the database will delete ALL existing predictions/guesses and reset user scores to 0. This action is irreversible. To proceed, please type "SEED" in uppercase:')
   if (confirmation !== 'SEED') {
@@ -1636,32 +2173,28 @@ const seedDatabase = async () => {
   try {
     const batch = writeBatch(db)
     
-    // 1. Delete all existing matches
     const matchesSnap = await getDocs(collection(db, 'matches'))
     matchesSnap.docs.forEach((doc) => {
       batch.delete(doc.ref)
     })
 
-    // 2. Delete all existing guesses to avoid inconsistencies
     const guessesSnap = await getDocs(collection(db, 'guesses'))
     guessesSnap.docs.forEach((doc) => {
       batch.delete(doc.ref)
     })
 
-    // 3. Reset all user scores to 0
     const usersSnap = await getDocs(collection(db, 'users'))
     usersSnap.docs.forEach((uDoc) => {
-      batch.update(uDoc.ref, { points: 0 })
+      batch.update(uDoc.ref, { points: 0, groupPoints: 0, knockoutPoints: 0 })
     })
 
-    // 4. Seed new matches
     defaultMatches.forEach((match) => {
       const matchRef = doc(collection(db, 'matches'))
       batch.set(matchRef, match)
     })
 
     await batch.commit()
-    adminSuccess.value = 'Database re-seeded with matches starting June 19!'
+    adminSuccess.value = 'Database re-seeded with matches!'
   } catch (err) {
     adminError.value = err.message
   }
@@ -1677,42 +2210,156 @@ const completeMatch = async (matchId) => {
     return
   }
 
-  const homeScoreVal = parseFloat(score.homeScore)
-  const awayScoreVal = parseFloat(score.awayScore)
+  const match = matches.value.find(m => m.id === matchId)
+  if (!match) return
 
-  if (!Number.isInteger(homeScoreVal) || !Number.isInteger(awayScoreVal) || homeScoreVal < 0 || homeScoreVal > 15 || awayScoreVal < 0 || awayScoreVal > 15) {
-    adminError.value = 'Scores must be whole numbers between 0 and 15.'
+  const isKnockout = match.stage === 'knockout'
+
+  const homeScoreRaw = parseFloat(score.homeScore)
+  const awayScoreRaw = parseFloat(score.awayScore)
+
+  const validateScore = (val) => Number.isInteger(val) && val >= 0
+  if (!validateScore(homeScoreRaw) || !validateScore(awayScoreRaw)) {
+    adminError.value = 'Scores must be whole numbers.'
     return
   }
 
-  try {
+  const homeScoreVal = parseInt(score.homeScore)
+  const awayScoreVal = parseInt(score.awayScore)
 
+  let homeScore90 = homeScoreVal
+  let awayScore90 = awayScoreVal
+  let homeScore120 = homeScoreVal
+  let awayScore120 = awayScoreVal
+  let homeShootoutScore = null
+  let awayShootoutScore = null
+  let shootoutWinner = null
+
+  if (isKnockout) {
+    const raw90Home = score.homeScore90 !== undefined && score.homeScore90 !== null && score.homeScore90 !== '' ? parseFloat(score.homeScore90) : homeScoreRaw
+    const raw90Away = score.awayScore90 !== undefined && score.awayScore90 !== null && score.awayScore90 !== '' ? parseFloat(score.awayScore90) : awayScoreRaw
+    const raw120Home = score.homeScore120 !== undefined && score.homeScore120 !== null && score.homeScore120 !== '' ? parseFloat(score.homeScore120) : homeScoreRaw
+    const raw120Away = score.awayScore120 !== undefined && score.awayScore120 !== null && score.awayScore120 !== '' ? parseFloat(score.awayScore120) : awayScoreRaw
+
+    if (!validateScore(raw90Home) || !validateScore(raw90Away) || !validateScore(raw120Home) || !validateScore(raw120Away)) {
+      adminError.value = 'Knockout scores must be whole numbers.'
+      return
+    }
+
+    homeScore90 = parseInt(raw90Home)
+    awayScore90 = parseInt(raw90Away)
+    homeScore120 = parseInt(raw120Home)
+    awayScore120 = parseInt(raw120Away)
+    
+    if (homeScore120 === awayScore120) {
+      shootoutWinner = score.shootoutWinner || null
+      if (!shootoutWinner) {
+        adminError.value = 'Match ended in draw after 120m. Please select a shootout winner.'
+        return
+      }
+
+      const hasHomePen = score.homeShootoutScore !== undefined && score.homeShootoutScore !== null && score.homeShootoutScore !== ''
+      const hasAwayPen = score.awayShootoutScore !== undefined && score.awayShootoutScore !== null && score.awayShootoutScore !== ''
+
+      if (!hasHomePen || !hasAwayPen) {
+        adminError.value = 'Please enter shootout scores for both teams.'
+        return
+      }
+
+      const rawPenHome = parseFloat(score.homeShootoutScore)
+      const rawPenAway = parseFloat(score.awayShootoutScore)
+      if (!validateScore(rawPenHome) || !validateScore(rawPenAway)) {
+        adminError.value = 'Shootout scores must be whole numbers.'
+        return
+      }
+
+      homeShootoutScore = parseInt(score.homeShootoutScore)
+      awayShootoutScore = parseInt(score.awayShootoutScore)
+
+      if (homeShootoutScore === awayShootoutScore) {
+        adminError.value = 'Shootout score cannot be a draw!'
+        return
+      }
+
+      if (shootoutWinner === 'home' && homeShootoutScore < awayShootoutScore) {
+        adminError.value = 'Shootout score must favor the selected winner (Home).'
+        return
+      }
+      if (shootoutWinner === 'away' && awayShootoutScore < homeShootoutScore) {
+        adminError.value = 'Shootout score must favor the selected winner (Away).'
+        return
+      }
+    }
+  }
+
+  try {
     const batch = writeBatch(db)
 
-    // 1. Update Match status and scores
-    batch.update(doc(db, 'matches', matchId), {
+    const matchUpdate = {
       status: 'completed',
       homeScore: homeScoreVal,
       awayScore: awayScoreVal
-    })
+    }
+    if (isKnockout) {
+      matchUpdate.homeScore90 = homeScore90
+      matchUpdate.awayScore90 = awayScore90
+      matchUpdate.homeScore120 = homeScore120
+      matchUpdate.awayScore120 = awayScore120
+      matchUpdate.homeShootoutScore = homeShootoutScore
+      matchUpdate.awayShootoutScore = awayShootoutScore
+      matchUpdate.shootoutWinner = shootoutWinner
+    }
+    batch.update(doc(db, 'matches', matchId), matchUpdate)
 
-    // 2. Fetch all guesses for this match
     const guessesSnap = await getDocs(query(collection(db, 'guesses'), where('matchId', '==', matchId)))
     
-    // 3. Score each guess and increment user's leaderboard points
     for (const guessDoc of guessesSnap.docs) {
       const guessData = guessDoc.data()
-      const isCorrect = guessData.homeGuess === homeScoreVal && guessData.awayGuess === awayScoreVal
-      const pointsEarned = isCorrect ? 1 : 0
+      let pointsEarned = 0
 
-      // Update guess record
+      if (isKnockout) {
+        const homeGuess90 = guessData.homeGuess90 !== undefined ? guessData.homeGuess90 : guessData.homeGuess;
+        const awayGuess90 = guessData.awayGuess90 !== undefined ? guessData.awayGuess90 : guessData.awayGuess;
+        const homeGuess120 = guessData.homeGuess120 !== undefined ? guessData.homeGuess120 : homeGuess90;
+        const awayGuess120 = guessData.awayGuess120 !== undefined ? guessData.awayGuess120 : awayGuess90;
+        const shootoutWinnerGuess = guessData.shootoutWinnerGuess || null;
+        const homeShootoutGuess = guessData.homeShootoutGuess !== undefined ? guessData.homeShootoutGuess : null;
+        const awayShootoutGuess = guessData.awayShootoutGuess !== undefined ? guessData.awayShootoutGuess : null;
+
+        const isCorrect90 = homeGuess90 === homeScore90 && awayGuess90 === awayScore90;
+        const isDraw90 = homeScore90 === awayScore90;
+        const isGuessDraw90 = homeGuess90 === awayGuess90;
+
+        const isCorrect120 = isDraw90 && isGuessDraw90 && (homeGuess120 === homeScore120 && awayGuess120 === awayScore120);
+        const isDraw120 = isDraw90 && (homeScore120 === awayScore120);
+        const isGuessDraw120 = isGuessDraw90 && (homeGuess120 === awayGuess120);
+
+        const isCorrectWinner = isDraw120 && isGuessDraw120 && (shootoutWinnerGuess === shootoutWinner);
+        const isCorrectShootoutScore = isDraw120 && isGuessDraw120 && 
+                                      (homeShootoutGuess === homeShootoutScore && awayShootoutGuess === awayShootoutScore);
+
+        if (isCorrect90) pointsEarned += 1.0;
+        if (isCorrect120) pointsEarned += 1.0;
+        if (isCorrectWinner) pointsEarned += 0.5;
+        if (isCorrectShootoutScore) pointsEarned += 1.5;
+      } else {
+        const isCorrect = guessData.homeGuess === homeScoreVal && guessData.awayGuess === awayScoreVal
+        pointsEarned = isCorrect ? 1 : 0
+      }
+
       batch.update(doc(db, 'guesses', guessDoc.id), { pointsEarned })
 
-      // Increment user points if correct
-      if (isCorrect) {
-        batch.update(doc(db, 'users', guessData.userId), {
-          points: increment(1)
-        })
+      if (pointsEarned > 0) {
+        const userRef = doc(db, 'users', guessData.userId)
+        const update = {
+          points: increment(pointsEarned)
+        }
+        if (isKnockout) {
+          update.knockoutPoints = increment(pointsEarned)
+        } else {
+          update.groupPoints = increment(pointsEarned)
+        }
+        batch.update(userRef, update)
       }
     }
 
@@ -1735,26 +2382,37 @@ const resetMatch = async (matchId) => {
 
     const batch = writeBatch(db)
 
-    // 1. Reset match scores and status
     batch.update(doc(db, 'matches', matchId), {
       status: 'scheduled',
       homeScore: null,
-      awayScore: null
+      awayScore: null,
+      homeScore90: null,
+      awayScore90: null,
+      homeScore120: null,
+      awayScore120: null,
+      homeShootoutScore: null,
+      awayShootoutScore: null,
+      shootoutWinner: null
     })
 
-    // 2. Fetch guesses
     const guessesSnap = await getDocs(query(collection(db, 'guesses'), where('matchId', '==', matchId)))
     
-    // 3. Decrement user points if they previously won
     for (const guessDoc of guessesSnap.docs) {
       const guessData = guessDoc.data()
-      if (guessData.pointsEarned === 1) {
-        batch.update(doc(db, 'users', guessData.userId), {
-          points: increment(-1)
-        })
+      const pts = guessData.pointsEarned || 0
+      if (pts > 0) {
+        const userRef = doc(db, 'users', guessData.userId)
+        const update = {
+          points: increment(-pts)
+        }
+        if (matchData.stage === 'knockout') {
+          update.knockoutPoints = increment(-pts)
+        } else {
+          update.groupPoints = increment(-pts)
+        }
+        batch.update(userRef, update)
       }
       
-      // Clear point status on guess
       batch.update(doc(db, 'guesses', guessDoc.id), {
         pointsEarned: null
       })
@@ -1764,6 +2422,18 @@ const resetMatch = async (matchId) => {
     adminSuccess.value = 'Match reset to scheduled state.'
   } catch (err) {
     adminError.value = err.message
+  }
+}
+
+const toggleKnockoutStage = async () => {
+  try {
+    const settingsRef = doc(db, 'settings', 'app')
+    await setDoc(settingsRef, { knockoutStageEnabled: !knockoutStageEnabled.value }, { merge: true })
+    adminSuccess.value = `Knockout stage features ${!knockoutStageEnabled.value ? 'enabled' : 'disabled'} successfully!`
+    setTimeout(() => adminSuccess.value = '', 4000)
+  } catch (err) {
+    adminError.value = `Failed to toggle knockout stage: ${err.message}`
+    setTimeout(() => adminError.value = '', 4000)
   }
 }
 
@@ -1779,7 +2449,14 @@ const initRealtimeData = (currentUser) => {
       if (!adminScores.value[match.id]) {
         adminScores.value[match.id] = {
           homeScore: match.homeScore !== null ? match.homeScore : 0,
-          awayScore: match.awayScore !== null ? match.awayScore : 0
+          awayScore: match.awayScore !== null ? match.awayScore : 0,
+          homeScore90: match.homeScore90 !== null ? match.homeScore90 : (match.homeScore !== null ? match.homeScore : 0),
+          awayScore90: match.awayScore90 !== null ? match.awayScore90 : (match.awayScore !== null ? match.awayScore : 0),
+          homeScore120: match.homeScore120 !== null ? match.homeScore120 : (match.homeScore !== null ? match.homeScore : 0),
+          awayScore120: match.awayScore120 !== null ? match.awayScore120 : (match.awayScore !== null ? match.awayScore : 0),
+          homeShootoutScore: match.homeShootoutScore !== null ? match.homeShootoutScore : 0,
+          awayShootoutScore: match.awayShootoutScore !== null ? match.awayShootoutScore : 0,
+          shootoutWinner: match.shootoutWinner !== null ? match.shootoutWinner : ''
         }
       }
     })
@@ -1801,14 +2478,27 @@ const initRealtimeData = (currentUser) => {
     // Sync current user's predictions to local inputs
     allGuesses.value.forEach(guess => {
       if (guess.userId === currentUser.uid) {
+        const homeG90 = guess.homeGuess90 !== undefined ? guess.homeGuess90 : guess.homeGuess;
+        const awayG90 = guess.awayGuess90 !== undefined ? guess.awayGuess90 : guess.awayGuess;
+
         if (!predictionInputs.value[guess.matchId]) {
           predictionInputs.value[guess.matchId] = {
-            homeGuess: guess.homeGuess,
-            awayGuess: guess.awayGuess
+            homeGuess: homeG90,
+            awayGuess: awayG90,
+            homeGuess120: guess.homeGuess120 !== undefined ? guess.homeGuess120 : homeG90,
+            awayGuess120: guess.awayGuess120 !== undefined ? guess.awayGuess120 : awayG90,
+            shootoutWinnerGuess: guess.shootoutWinnerGuess || '',
+            homeShootoutGuess: guess.homeShootoutGuess !== undefined ? guess.homeShootoutGuess : '',
+            awayShootoutGuess: guess.awayShootoutGuess !== undefined ? guess.awayShootoutGuess : ''
           }
         } else {
-          predictionInputs.value[guess.matchId].homeGuess = guess.homeGuess
-          predictionInputs.value[guess.matchId].awayGuess = guess.awayGuess
+          predictionInputs.value[guess.matchId].homeGuess = homeG90
+          predictionInputs.value[guess.matchId].awayGuess = awayG90
+          predictionInputs.value[guess.matchId].homeGuess120 = guess.homeGuess120 !== undefined ? guess.homeGuess120 : homeG90
+          predictionInputs.value[guess.matchId].awayGuess120 = guess.awayGuess120 !== undefined ? guess.awayGuess120 : awayG90
+          predictionInputs.value[guess.matchId].shootoutWinnerGuess = guess.shootoutWinnerGuess || ''
+          predictionInputs.value[guess.matchId].homeShootoutGuess = guess.homeShootoutGuess !== undefined ? guess.homeShootoutGuess : ''
+          predictionInputs.value[guess.matchId].awayShootoutGuess = guess.awayShootoutGuess !== undefined ? guess.awayShootoutGuess : ''
         }
       }
     })
@@ -1819,6 +2509,16 @@ const initRealtimeData = (currentUser) => {
   leaderboardUnsub = onSnapshot(leaderboardQuery, (snapshot) => {
     leaderboard.value = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() }))
   })
+
+  // 5. Subscribe to Settings
+  const settingsRef = doc(db, 'settings', 'app')
+  settingsUnsub = onSnapshot(settingsRef, (snapshot) => {
+    if (snapshot.exists()) {
+      knockoutStageEnabled.value = snapshot.data().knockoutStageEnabled || false
+    } else {
+      knockoutStageEnabled.value = false
+    }
+  })
 }
 
 // Clean up subs on unmount
@@ -1827,6 +2527,7 @@ const clearSubscriptions = () => {
   if (guessesUnsub) guessesUnsub()
   if (leaderboardUnsub) leaderboardUnsub()
   if (userProfileUnsub) userProfileUnsub()
+  if (settingsUnsub) settingsUnsub()
 }
 
 onMounted(() => {
@@ -1989,7 +2690,7 @@ onUnmounted(() => {
             class="match-card"
             :class="{
               completed: match.status === 'completed',
-              'correct-guess': match.status === 'completed' && userGuesses[match.id]?.pointsEarned === 1,
+              'correct-guess': match.status === 'completed' && userGuesses[match.id]?.pointsEarned > 0,
               'incorrect-guess': match.status === 'completed' && userGuesses[match.id]?.pointsEarned === 0
             }"
           >
@@ -2022,7 +2723,10 @@ onUnmounted(() => {
               
               <div class="score-versus">
                 <div v-if="match.status === 'completed' || match.status === 'live'" class="official-score" :class="{ 'live-score': match.status === 'live' }">
-                  {{ match.homeScore !== null ? match.homeScore : 0 }} - {{ match.awayScore !== null ? match.awayScore : 0 }}
+                  <div>{{ match.homeScore !== null ? match.homeScore : 0 }} - {{ match.awayScore !== null ? match.awayScore : 0 }}</div>
+                  <div v-if="match.stage === 'knockout' && match.homeScore120 !== null && match.homeScore120 === match.awayScore120 && match.shootoutWinner" style="font-size: 0.75rem; color: var(--accent); font-weight: 600; margin-top: 0.15rem; white-space: nowrap;">
+                    ({{ match.homeShootoutScore }} - {{ match.awayShootoutScore }})
+                  </div>
                 </div>
                 <div v-else class="vs">VS</div>
               </div>
@@ -2036,65 +2740,207 @@ onUnmounted(() => {
 
             <!-- Guess inputs / points presentation -->
             <div class="prediction-box">
-              <div class="prediction-label">
+              <div class="prediction-label" v-if="match.status === 'completed' || !(match.stage === 'knockout' && typeof predictionInputs[match.id]?.homeGuess === 'number' && typeof predictionInputs[match.id]?.awayGuess === 'number' && predictionInputs[match.id]?.homeGuess === predictionInputs[match.id]?.awayGuess)">
                 {{ match.status === 'completed' ? 'Your Guess:' : 'Predict Score:' }}
               </div>
               
               <!-- Case 1: Match is completed -->
               <div v-if="match.status === 'completed'" class="prediction-badge">
-                <span v-if="userGuesses[match.id]?.homeGuess !== undefined && userGuesses[match.id]?.homeGuess !== null">
-                  {{ userGuesses[match.id].homeGuess }} - {{ userGuesses[match.id].awayGuess }}
+                <span>
+                  <span 
+                    v-for="(seg, sIdx) in formatFriendPredictionSegments(userGuesses[match.id], match)" 
+                    :key="sIdx"
+                    :style="seg.isCorrect ? 'color: var(--accent); font-weight: 700;' : ''"
+                    :class="{ 'text-muted': seg.isTextMuted }"
+                  >
+                    {{ seg.text }}
+                  </span>
                 </span>
-                <span v-else class="text-muted">No prediction submitted</span>
                 
                 <span 
                   class="badge-points"
                   :class="{
-                    'points-earned': userGuesses[match.id]?.pointsEarned === 1,
-                    'points-missed': userGuesses[match.id]?.pointsEarned === 0 || !userGuesses[match.id]
+                    'points-earned': userGuesses[match.id]?.pointsEarned > 0,
+                    'points-missed': !userGuesses[match.id] || userGuesses[match.id]?.pointsEarned === 0
                   }"
                 >
-                  {{ userGuesses[match.id]?.pointsEarned === 1 ? '+1 Point' : '0 Points' }}
+                  {{ userGuesses[match.id]?.pointsEarned > 0 ? '+' + userGuesses[match.id]?.pointsEarned + ' Pts' : '0 Points' }}
                 </span>
               </div>
 
               <!-- Case 2: Match is scheduled, but started/locked -->
               <div v-else-if="matchHasStarted(match.date)" class="prediction-badge">
-                <span v-if="userGuesses[match.id]?.homeGuess !== undefined && userGuesses[match.id]?.homeGuess !== null" style="margin-right: 0.5rem;">
-                  {{ userGuesses[match.id].homeGuess }} - {{ userGuesses[match.id].awayGuess }}
+                <span style="margin-right: 0.5rem;">
+                  <span 
+                    v-for="(seg, sIdx) in formatFriendPredictionSegments(userGuesses[match.id], match)" 
+                    :key="sIdx"
+                    :style="seg.isCorrect ? 'color: var(--accent); font-weight: 700;' : ''"
+                    :class="{ 'text-muted': seg.isTextMuted }"
+                  >
+                    {{ seg.text }}
+                  </span>
                 </span>
-                <span v-else class="text-muted" style="margin-right: 0.5rem;">No prediction</span>
                 <span class="badge-points points-pending">Locked 🔒</span>
               </div>
 
               <!-- Case 3: Match is open for predictions -->
-              <div v-else-if="predictionInputs[match.id]" class="prediction-inputs">
-                <input 
-                  type="number" 
-                  placeholder="Home" 
-                  min="0" 
-                  max="15"
-                  step="1"
-                  v-model.number="predictionInputs[match.id].homeGuess"
-                />
-                <span>-</span>
-                <input 
-                  type="number" 
-                  placeholder="Away" 
-                  min="0" 
-                  max="15"
-                  step="1"
-                  v-model.number="predictionInputs[match.id].awayGuess"
-                />
-                <button 
-                  class="btn" 
-                  :class="{ 'btn-saved': isPredictionSaved(match.id) }"
-                  style="width: auto; padding: 0.4rem 0.8rem; font-size: 0.85rem;"
-                  @click="submitGuess(match.id)"
-                  :disabled="predictionInputs[match.id].homeGuess === null || predictionInputs[match.id].awayGuess === null || predictionInputs[match.id].homeGuess === undefined || predictionInputs[match.id].awayGuess === undefined"
-                >
-                  {{ isPredictionSaved(match.id) ? 'SAVED' : 'Save' }}
-                </button>
+              <div v-else-if="predictionInputs[match.id]" class="prediction-inputs" style="flex-wrap: wrap;">
+                <div v-if="match.stage === 'knockout' && typeof predictionInputs[match.id].homeGuess === 'number' && typeof predictionInputs[match.id].awayGuess === 'number' && predictionInputs[match.id].homeGuess === predictionInputs[match.id].awayGuess" style="font-size: 0.8rem; color: var(--accent); font-weight: 600; width: 100%; margin-bottom: 0.25rem;">
+                  📋 Regular Time Prediction (90 mins):
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.5rem; width: 100%;">
+                  <input 
+                    type="number" 
+                    placeholder="Home" 
+                    min="0" 
+                    step="1"
+                    v-model.number="predictionInputs[match.id].homeGuess"
+                    @input="syncDefaultExtraTime(match.id)"
+                  />
+                  <span>-</span>
+                  <input 
+                    type="number" 
+                    placeholder="Away" 
+                    min="0" 
+                    step="1"
+                    v-model.number="predictionInputs[match.id].awayGuess"
+                    @input="syncDefaultExtraTime(match.id)"
+                  />
+                  <button 
+                    v-if="match.stage !== 'knockout' || typeof predictionInputs[match.id].homeGuess !== 'number' || typeof predictionInputs[match.id].awayGuess !== 'number' || predictionInputs[match.id].homeGuess !== predictionInputs[match.id].awayGuess"
+                    class="btn" 
+                    :class="{ 'btn-saved': isPredictionSaved(match.id) }"
+                    style="width: auto; padding: 0.4rem 0.8rem; font-size: 0.85rem;"
+                    @click="submitGuess(match.id)"
+                    :disabled="predictionInputs[match.id].homeGuess === null || predictionInputs[match.id].awayGuess === null || predictionInputs[match.id].homeGuess === undefined || predictionInputs[match.id].awayGuess === undefined"
+                  >
+                    {{ isPredictionSaved(match.id) ? 'SAVED' : 'Save' }}
+                  </button>
+                </div>
+
+                <!-- Extra Time (120m) Prediction inputs -->
+                <div v-if="match.stage === 'knockout' && typeof predictionInputs[match.id].homeGuess === 'number' && typeof predictionInputs[match.id].awayGuess === 'number' && predictionInputs[match.id].homeGuess === predictionInputs[match.id].awayGuess" style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.75rem; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 0.75rem; width: 100%;">
+                  <div style="font-size: 0.8rem; color: var(--accent); font-weight: 600;">⚡ Extra Time Prediction (120 mins):</div>
+                  <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <input 
+                      type="number" 
+                      placeholder="Home ET" 
+                      min="0" 
+                      step="1"
+                      v-model.number="predictionInputs[match.id].homeGuess120"
+                      style="width: 80px;"
+                    />
+                    <span>-</span>
+                    <input 
+                      type="number" 
+                      placeholder="Away ET" 
+                      min="0" 
+                      step="1"
+                      v-model.number="predictionInputs[match.id].awayGuess120"
+                      style="width: 80px;"
+                    />
+                  </div>
+                  
+                  <div v-if="predictionInputs[match.id].homeGuess120 !== null && predictionInputs[match.id].homeGuess120 !== '' && predictionInputs[match.id].awayGuess120 !== null && predictionInputs[match.id].awayGuess120 !== '' && !isExtraTimeValid(match.id)" style="font-size: 0.8rem; color: var(--danger); font-weight: 500; margin-top: 0.25rem;">
+                    ⚠ Extra time scores must be whole numbers and cannot be less than 90 mins scores.
+                  </div>
+                  
+                  <!-- Penalty Shootout Prediction inputs -->
+                  <div v-if="isExtraTimeValid(match.id) && predictionInputs[match.id].homeGuess120 === predictionInputs[match.id].awayGuess120" style="display: flex; flex-direction: column; gap: 0.75rem; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 0.75rem;">
+                    <div style="font-size: 0.8rem; color: var(--accent); font-weight: 600;">⚽ Penalty shootout winner (+0.5 pts):</div>
+                    <div style="display: flex; gap: 0.5rem;">
+                      <button 
+                        class="btn"
+                        :class="predictionInputs[match.id].shootoutWinnerGuess === 'home' ? 'btn-primary' : 'btn-secondary'"
+                        style="width: auto; flex: 1; padding: 0.4rem; font-size: 0.8rem;"
+                        @click="predictionInputs[match.id].shootoutWinnerGuess = 'home'"
+                      >
+                        {{ match.homeTeam }}
+                      </button>
+                      <button 
+                        class="btn"
+                        :class="predictionInputs[match.id].shootoutWinnerGuess === 'away' ? 'btn-primary' : 'btn-secondary'"
+                        style="width: auto; flex: 1; padding: 0.4rem; font-size: 0.8rem;"
+                        @click="predictionInputs[match.id].shootoutWinnerGuess = 'away'"
+                      >
+                        {{ match.awayTeam }}
+                      </button>
+                    </div>
+                    
+                    <div style="font-size: 0.8rem; color: var(--accent); font-weight: 600; margin-top: 0.25rem;">🎯 Shootout score (Optional, +1.5 pts):</div>
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                      <input 
+                        type="number" 
+                        placeholder="Pens Home" 
+                        min="0" 
+                        step="1"
+                        v-model.number="predictionInputs[match.id].homeShootoutGuess"
+                        style="width: 80px;"
+                      />
+                      <span>-</span>
+                      <input 
+                        type="number" 
+                        placeholder="Pens Away" 
+                        min="0" 
+                        step="1"
+                        v-model.number="predictionInputs[match.id].awayShootoutGuess"
+                        style="width: 80px;"
+                      />
+                    </div>
+                  </div>
+                </div>
+                
+                <!-- Bottom Save & Clear Buttons for Knockout Draws -->
+                <div v-if="match.stage === 'knockout' && typeof predictionInputs[match.id].homeGuess === 'number' && typeof predictionInputs[match.id].awayGuess === 'number' && predictionInputs[match.id].homeGuess === predictionInputs[match.id].awayGuess" style="width: 100%; margin-top: 0.75rem; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 0.75rem;">
+                  
+                  <!-- Normal Buttons -->
+                  <div v-if="!showClearConfirm[match.id]" style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+                    <button 
+                      v-if="userGuesses[match.id] || (predictionInputs[match.id] && predictionInputs[match.id].homeGuess !== null && predictionInputs[match.id].homeGuess !== '')"
+                      type="button"
+                      class="btn btn-secondary"
+                      style="width: auto; padding: 0.4rem 1.2rem; font-size: 0.85rem;"
+                      @click.stop.prevent="triggerClearConfirm(match.id, true)"
+                    >
+                      Clear
+                    </button>
+                    <button 
+                      class="btn" 
+                      :class="{ 'btn-saved': isPredictionSaved(match.id) }"
+                      style="width: auto; padding: 0.4rem 1.2rem; font-size: 0.85rem;"
+                      @click="submitGuess(match.id)"
+                      :disabled="predictionInputs[match.id].homeGuess === null || predictionInputs[match.id].awayGuess === null || predictionInputs[match.id].homeGuess === undefined || predictionInputs[match.id].awayGuess === undefined"
+                    >
+                      {{ isPredictionSaved(match.id) ? 'SAVED' : 'Save' }}
+                    </button>
+                  </div>
+
+                  <!-- Inline Confirmation Warning -->
+                  <div v-else class="local-slide-in" style="display: flex; align-items: center; justify-content: space-between; background: rgba(255, 77, 109, 0.08); border: 1px solid rgba(255, 77, 109, 0.2); padding: 0.5rem 0.75rem; border-radius: var(--btn-radius);">
+                    <span style="font-size: 0.8rem; color: var(--danger); font-weight: 500;">
+                      Clear predictions?
+                    </span>
+                    <div style="display: flex; gap: 0.4rem;">
+                      <button 
+                        type="button"
+                        class="btn btn-danger"
+                        style="width: auto; padding: 0.35rem 0.75rem; font-size: 0.8rem; background: var(--danger); border-color: var(--danger); color: white;"
+                        @click.stop.prevent="clearGuess(match.id)"
+                      >
+                        Yes, Clear
+                      </button>
+                      <button 
+                        type="button"
+                        class="btn btn-secondary"
+                        style="width: auto; padding: 0.35rem 0.75rem; font-size: 0.8rem;"
+                        @click.stop.prevent="triggerClearConfirm(match.id, false)"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+
+                </div>
               </div>
               <div v-else class="prediction-badge">
                 <span class="badge-points points-pending">Loading...</span>
@@ -2107,7 +2953,7 @@ onUnmounted(() => {
                 class="btn btn-secondary btn-toggle-predictions" 
                 @click="expandedMatches[match.id] = !expandedMatches[match.id]"
               >
-                👥 {{ expandedMatches[match.id] ? 'Hide' : 'Show' }} Friends' Predictions ({{ getOtherGuessesCount(match.id) }})
+                👥 {{ expandedMatches[match.id] ? 'Hide' : 'Show' }} Predictions ({{ getOtherGuessesCount(match.id) }})
               </button>
               
               <div v-if="expandedMatches[match.id]" class="predictions-expanded-list">
@@ -2120,18 +2966,21 @@ onUnmounted(() => {
                   <span class="pred-player-name">
                     {{ pred.playerName }} <span v-if="pred.uid === user.uid" class="current-user-tag">You</span>
                   </span>
-                  <span class="pred-player-score" v-if="pred.homeGuess !== undefined && pred.homeGuess !== null">
-                    {{ pred.homeGuess }} - {{ pred.awayGuess }}
+                  <span class="pred-player-score" :class="{ 'text-muted': pred.homeGuess === undefined || pred.homeGuess === null }">
                     <span 
-                      v-if="match.status === 'completed'" 
-                      class="mini-points-badge"
-                      :class="pred.pointsEarned === 1 ? 'earned' : 'missed'"
+                      v-for="(seg, sIdx) in formatFriendPredictionSegments(pred, match)" 
+                      :key="sIdx"
+                      :style="seg.isCorrect ? 'color: var(--accent); font-weight: 700;' : ''"
                     >
-                      {{ pred.pointsEarned === 1 ? '+1' : '0' }}
+                      {{ seg.text }}
                     </span>
-                  </span>
-                  <span class="pred-player-score text-muted" v-else>
-                    No prediction
+                    <span 
+                      v-if="match.status === 'completed' && pred.homeGuess !== undefined && pred.homeGuess !== null" 
+                      class="mini-points-badge"
+                      :class="pred.pointsEarned > 0 ? 'earned' : 'missed'"
+                    >
+                      {{ pred.pointsEarned > 0 ? '+' + pred.pointsEarned : '0' }}
+                    </span>
                   </span>
                 </div>
               </div>
@@ -2149,6 +2998,31 @@ onUnmounted(() => {
       <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1.5rem;">
         Ranking updated in real-time as scores are locked.
       </p>
+
+      <!-- Leaderboard Filter Tabs -->
+      <div v-if="knockoutStageEnabled" class="admin-sub-tabs" style="margin-bottom: 1.5rem;">
+        <button 
+          class="sub-tab-btn" 
+          :class="{ active: leaderboardFilter === 'overall' }" 
+          @click="leaderboardFilter = 'overall'"
+        >
+          🏆 Overall
+        </button>
+        <button 
+          class="sub-tab-btn" 
+          :class="{ active: leaderboardFilter === 'group' }" 
+          @click="leaderboardFilter = 'group'"
+        >
+          📋 Group Stage
+        </button>
+        <button 
+          class="sub-tab-btn" 
+          :class="{ active: leaderboardFilter === 'knockout' }" 
+          @click="leaderboardFilter = 'knockout'"
+        >
+          ⚡ Knockout Stage
+        </button>
+      </div>
 
       <table class="leaderboard-table">
         <thead>
@@ -2178,10 +3052,19 @@ onUnmounted(() => {
               </span>
             </td>
             <td class="name-cell">
-              {{ player.displayName }}
-              <span v-if="player.uid === user.uid" class="current-user-tag">You</span>
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <span>{{ player.displayName }}</span>
+                <span v-if="player.uid === user.uid" class="current-user-tag">You</span>
+              </div>
+              <div v-if="knockoutStageEnabled" style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.1rem; opacity: 0.85; font-weight: normal;">
+                Grp. {{ player.groupPointsDisplay }} | K.O. {{ player.knockoutPointsDisplay }}
+              </div>
             </td>
-            <td class="points-cell">{{ player.points }}</td>
+            <td class="points-cell">
+              <span v-if="leaderboardFilter === 'group'">{{ player.groupPointsDisplay }}</span>
+              <span v-else-if="leaderboardFilter === 'knockout'">{{ player.knockoutPointsDisplay }}</span>
+              <span v-else>{{ player.pointsDisplay }}</span>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -2287,16 +3170,54 @@ onUnmounted(() => {
                 </button>
               </div>
               
-              <div v-else class="form-grid-three" style="width: 100%; align-items: center;">
-                <div style="display: flex; align-items: center; gap: 0.25rem;">
-                  <input type="number" min="0" max="15" step="1" placeholder="Home" style="width: 75px; text-align: center;" v-model="adminScores[match.id].homeScore" />
-                  <span style="color: var(--text-muted)">-</span>
-                  <input type="number" min="0" max="15" step="1" placeholder="Away" style="width: 75px; text-align: center;" v-model="adminScores[match.id].awayScore" />
+              <div v-else style="width: 100%; display: flex; flex-direction: column; gap: 0.75rem;">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
+                  <div style="display: flex; align-items: center; gap: 0.25rem;">
+                    <label style="font-size: 0.8rem; color: var(--text-secondary); margin-right: 0.5rem;">Final Score:</label>
+                    <input type="number" min="0" max="15" step="1" placeholder="Home" style="width: 60px; text-align: center;" v-model="adminScores[match.id].homeScore" />
+                    <span style="color: var(--text-muted)">-</span>
+                    <input type="number" min="0" max="15" step="1" placeholder="Away" style="width: 60px; text-align: center;" v-model="adminScores[match.id].awayScore" />
+                  </div>
+                  
+                  <button class="btn" style="width: auto; padding: 0.4rem 0.8rem; font-size: 0.85rem;" @click="completeMatch(match.id)">
+                    Lock Score & Rank
+                  </button>
                 </div>
-                <div></div>
-                <button class="btn" style="padding: 0.4rem; font-size: 0.85rem;" @click="completeMatch(match.id)">
-                  Lock Score & Rank
-                </button>
+                
+                <!-- Knockout overrides for admin -->
+                <div v-if="match.stage === 'knockout'" style="border-top: 1px solid rgba(255,255,255,0.05); padding-top: 0.5rem; display: flex; flex-direction: column; gap: 0.5rem;">
+                  <div style="font-size: 0.75rem; color: var(--accent); font-weight: 600;">Knockout Details Override (Optional):</div>
+                  <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                    <div style="display: flex; align-items: center; gap: 0.25rem;">
+                      <label style="font-size: 0.75rem; color: var(--text-muted); width: 60px;">90 Mins:</label>
+                      <input type="number" min="0" max="15" step="1" placeholder="Home 90" style="width: 50px; text-align: center; font-size: 0.75rem; padding: 0.25rem;" v-model="adminScores[match.id].homeScore90" />
+                      <span>-</span>
+                      <input type="number" min="0" max="15" step="1" placeholder="Away 90" style="width: 50px; text-align: center; font-size: 0.75rem; padding: 0.25rem;" v-model="adminScores[match.id].awayScore90" />
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 0.25rem;">
+                      <label style="font-size: 0.75rem; color: var(--text-muted); width: 60px;">120 Mins:</label>
+                      <input type="number" min="0" max="15" step="1" placeholder="Home 120" style="width: 50px; text-align: center; font-size: 0.75rem; padding: 0.25rem;" v-model="adminScores[match.id].homeScore120" />
+                      <span>-</span>
+                      <input type="number" min="0" max="15" step="1" placeholder="Away 120" style="width: 50px; text-align: center; font-size: 0.75rem; padding: 0.25rem;" v-model="adminScores[match.id].awayScore120" />
+                    </div>
+                  </div>
+                  <div v-if="adminScores[match.id].homeScore120 !== null && adminScores[match.id].homeScore120 === adminScores[match.id].awayScore120" style="display: flex; flex-direction: column; gap: 0.35rem;">
+                    <div style="display: flex; align-items: center; gap: 0.25rem;">
+                      <label style="font-size: 0.75rem; color: var(--text-muted); width: 60px;">Shootout:</label>
+                      <input type="number" min="0" max="15" step="1" placeholder="Pens H" style="width: 50px; text-align: center; font-size: 0.75rem; padding: 0.25rem;" v-model="adminScores[match.id].homeShootoutScore" />
+                      <span>-</span>
+                      <input type="number" min="0" max="15" step="1" placeholder="Pens A" style="width: 50px; text-align: center; font-size: 0.75rem; padding: 0.25rem;" v-model="adminScores[match.id].awayShootoutScore" />
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                      <label style="font-size: 0.75rem; color: var(--text-muted);">Winner:</label>
+                      <select v-model="adminScores[match.id].shootoutWinner" style="font-size: 0.75rem; padding: 0.2rem; background: rgba(0,0,0,0.5); color: var(--text-primary); border: 1px solid rgba(255,255,255,0.15); border-radius: 4px;">
+                        <option value="">-- Select Winner --</option>
+                        <option value="home">{{ match.homeTeam }}</option>
+                        <option value="away">{{ match.awayTeam }}</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -2335,6 +3256,30 @@ onUnmounted(() => {
         </form>
       </div>
 
+      <!-- Knockout Stage Control -->
+      <div v-if="activeAdminSubTab === 'setup'" class="admin-card">
+        <h3>🏆 Knockout Stage Control</h3>
+        <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1.25rem;">
+          Toggle visibility of the Round of 32 knockout matches and split leaderboards.
+        </p>
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 1rem; background: rgba(255,255,255,0.03); border-radius: var(--input-radius); border: 1px solid rgba(255,255,255,0.05);">
+          <div>
+            <span style="font-weight: 600; display: block;">Knockout Stage Features</span>
+            <span style="font-size: 0.8rem; color: var(--text-muted);">
+              {{ knockoutStageEnabled ? 'Visible to players' : 'Hidden from players' }}
+            </span>
+          </div>
+          <label class="switch-control">
+            <input 
+              type="checkbox" 
+              :checked="knockoutStageEnabled" 
+              @change="toggleKnockoutStage" 
+            />
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+      </div>
+
       <!-- Seed Database Panel -->
       <div v-if="activeAdminSubTab === 'setup'" class="admin-card">
         <h3>🌱 Database Seeding</h3>
@@ -2347,6 +3292,22 @@ onUnmounted(() => {
         <span style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-top: 0.5rem;">
           Note: This resets current scores and deletes existing predictions.
         </span>
+      </div>
+
+      <!-- Friends' Predictions Layout Testing Panel -->
+      <div v-if="activeAdminSubTab === 'setup'" class="admin-card">
+        <h3>🧪 Friends' Predictions Layout Testing</h3>
+        <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1rem;">
+          Generate a dummy knockout match in the past with multiple fake friend predictions to test the list rendering layout and points display on mobile and desktop.
+        </p>
+        <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+          <button type="button" class="btn btn-secondary" @click.stop.prevent="seedTestFriendPredictions" style="width: auto; margin-bottom: 0;">
+            Seed Test Match & Predictions
+          </button>
+          <button type="button" class="btn btn-danger" @click.stop.prevent="cleanTestData" style="width: auto; background: var(--danger); border-color: var(--danger); margin-bottom: 0; display: flex; align-items: center; gap: 0.25rem;">
+            🗑️ Remove Test Data
+          </button>
+        </div>
       </div>
     </section>
   </main>

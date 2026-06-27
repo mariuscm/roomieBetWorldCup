@@ -87,6 +87,120 @@ const normalizeTeamName = (name) => {
   return teamNameMapping[normalized] || normalized;
 };
 
+// Team Flags mapping
+const teamFlags = {
+  "mexico": "🇲🇽",
+  "south korea": "🇰🇷",
+  "czech republic": "🇨🇿",
+  "south africa": "🇿🇦",
+  "canada": "🇨🇦",
+  "qatar": "🇶🇦",
+  "switzerland": "🇨🇭",
+  "bosnia & herzegovina": "🇧🇦",
+  "bosnia-herzegovina": "🇧🇦",
+  "brazil": "🇧🇷",
+  "haiti": "🇭🇹",
+  "scotland": "🏴󠁧󠁢󠁳󠁣󠁴󠁿",
+  "morocco": "🇲🇦",
+  "usa": "🇺🇸",
+  "australia": "🇦🇺",
+  "turkey": "🇹🇷",
+  "paraguay": "🇵🇾",
+  "germany": "🇩🇪",
+  "ivory coast": "🇨🇮",
+  "ecuador": "🇪🇨",
+  "curacao": "🇨🇼",
+  "netherlands": "🇳🇱",
+  "sweden": "🇸🇪",
+  "tunisia": "🇹🇳",
+  "japan": "🇯🇵",
+  "belgium": "🇧🇪",
+  "iran": "🇮🇷",
+  "new zealand": "🇳🇿",
+  "egypt": "🇪🇬",
+  "spain": "🇪🇸",
+  "saudi arabia": "🇸🇦",
+  "uruguay": "🇺🇾",
+  "cape verde": "🇨🇻",
+  "france": "🇫🇷",
+  "iraq": "🇮🇶",
+  "norway": "🇳🇴",
+  "senegal": "🇸🇳",
+  "argentina": "🇦🇷",
+  "austria": "🇦🇹",
+  "jordan": "🇯🇴",
+  "algeria": "🇩🇿",
+  "portugal": "🇵🇹",
+  "uzbekistan": "🇺🇿",
+  "colombia": "🇨🇴",
+  "dr congo": "🇨🇩",
+  "england": "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
+  "ghana": "🇬🇭",
+  "panama": "🇵🇦",
+  "croatia": "🇭🇷"
+};
+
+// Fetch Game Summary sub-scores (90m, 120m, shootouts)
+async function fetchSummaryScores(eventId, homeId, awayId) {
+  try {
+    const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/summary?event=${eventId}`);
+    if (!res.ok) throw new Error(`Summary API failed with status ${res.status}`);
+    const data = await res.json();
+    const competitors = data.header?.competitions?.[0]?.competitors || [];
+    
+    const home = competitors.find(c => c.id === homeId);
+    const away = competitors.find(c => c.id === awayId);
+    
+    if (!home || !away) {
+      console.warn(`⚠️ Competitors not found in summary for event ${eventId}`);
+      return null;
+    }
+    
+    const parseLinescoreSum = (linescores, count) => {
+      let sum = 0;
+      for (let i = 0; i < count; i++) {
+        if (linescores[i] && linescores[i].displayValue !== undefined) {
+          sum += parseInt(linescores[i].displayValue, 10) || 0;
+        }
+      }
+      return sum;
+    };
+
+    const homeLines = home.linescores || [];
+    const awayLines = away.linescores || [];
+
+    const homeScore90 = parseLinescoreSum(homeLines, 2);
+    const awayScore90 = parseLinescoreSum(awayLines, 2);
+
+    // Score after 120 minutes is the sum of 4 periods if extra time was played, otherwise matches the 90m score
+    const homeScore120 = homeLines.length >= 4 ? parseLinescoreSum(homeLines, 4) : homeScore90;
+    const awayScore120 = awayLines.length >= 4 ? parseLinescoreSum(awayLines, 4) : awayScore90;
+
+    let shootoutWinner = null;
+    let homeShootoutScore = null;
+    let awayShootoutScore = null;
+
+    if (home.shootoutScore !== undefined || away.shootoutScore !== undefined) {
+      homeShootoutScore = home.shootoutScore !== undefined ? parseInt(home.shootoutScore, 10) : 0;
+      awayShootoutScore = away.shootoutScore !== undefined ? parseInt(away.shootoutScore, 10) : 0;
+      shootoutWinner = home.winner ? "home" : "away";
+    }
+
+    return {
+      homeScore90,
+      awayScore90,
+      homeScore120,
+      awayScore120,
+      homeShootoutScore,
+      awayShootoutScore,
+      shootoutWinner
+    };
+  } catch (err) {
+    console.error(`❌ Failed to fetch summary scores for event ${eventId}:`, err);
+    return null;
+  }
+}
+
 async function syncScores() {
   const dryRun = process.argv.includes("--commit") ? false : true;
   console.log("=========================================");
@@ -165,6 +279,7 @@ async function syncScores() {
       
       // Find the corresponding database match
       const dbMatch = dbMatches.find(m => {
+        if (m.espnEventId && m.espnEventId === event.id) return true;
         return normalizeTeamName(m.homeTeam) === espnHomeName && 
                normalizeTeamName(m.awayTeam) === espnAwayName;
       });
@@ -172,6 +287,34 @@ async function syncScores() {
       if (!dbMatch) {
         console.log(`⚠️ Match not found in local DB: ${homeCompetitor.team.displayName} vs ${awayCompetitor.team.displayName} (Mapped: ${espnHomeName} vs ${espnAwayName})`);
         continue;
+      }
+
+      // 4. Resolve team placeholders if event ID matches but team names differ
+      const realHomeTeam = homeCompetitor.team.displayName;
+      const realAwayTeam = awayCompetitor.team.displayName;
+      if (dbMatch.espnEventId === event.id && (dbMatch.homeTeam !== realHomeTeam || dbMatch.awayTeam !== realAwayTeam)) {
+        const homeNorm = normalizeTeamName(realHomeTeam);
+        const awayNorm = normalizeTeamName(realAwayTeam);
+        const homeFlag = teamFlags[homeNorm] || "🏳️";
+        const awayFlag = teamFlags[awayNorm] || "🏳️";
+
+        console.log(`🔄 Resolving placeholders: ${dbMatch.homeTeam} vs ${dbMatch.awayTeam} -> ${realHomeTeam} vs ${realAwayTeam}`);
+
+        dbMatch.homeTeam = realHomeTeam;
+        dbMatch.awayTeam = realAwayTeam;
+        dbMatch.homeFlag = homeFlag;
+        dbMatch.awayFlag = awayFlag;
+
+        if (!dryRun) {
+          const matchRef = doc(db, "matches", dbMatch.id);
+          batch.update(matchRef, {
+            homeTeam: realHomeTeam,
+            awayTeam: realAwayTeam,
+            homeFlag: homeFlag,
+            awayFlag: awayFlag
+          });
+        }
+        updateCount++;
       }
 
       // Map ESPN states ('pre' -> scheduled, 'in' -> live, 'post' -> completed)
@@ -198,30 +341,114 @@ async function syncScores() {
           const matchRef = doc(db, "matches", dbMatch.id);
           
           if (newStatus === "completed" && dbMatch.status !== "completed") {
-            // Lock score and update points for correct guesses
             console.log(`   🔒 Locking scores & calculating player points for ${dbMatch.homeTeam} vs ${dbMatch.awayTeam}...`);
-            batch.update(matchRef, {
+            
+            let shootoutWinner = null;
+            let homeShootoutScore = null;
+            let awayShootoutScore = null;
+            let homeScore90 = null;
+            let awayScore90 = null;
+            let homeScore120 = null;
+            let awayScore120 = null;
+            
+            const isKnockout = dbMatch.stage === "knockout";
+            
+            if (isKnockout) {
+              console.log(`     Fetching detailed summary scores for knockout match (event: ${dbMatch.espnEventId})...`);
+              const summaryScores = await fetchSummaryScores(dbMatch.espnEventId || event.id, homeCompetitor.id, awayCompetitor.id);
+              if (summaryScores) {
+                homeScore90 = summaryScores.homeScore90;
+                awayScore90 = summaryScores.awayScore90;
+                homeScore120 = summaryScores.homeScore120;
+                awayScore120 = summaryScores.awayScore120;
+                homeShootoutScore = summaryScores.homeShootoutScore;
+                awayShootoutScore = summaryScores.awayShootoutScore;
+                shootoutWinner = summaryScores.shootoutWinner;
+                console.log(`     Summary: 90': ${homeScore90}-${awayScore90} | 120': ${homeScore120}-${awayScore120} | Pens: ${shootoutWinner} (${homeShootoutScore}-${awayShootoutScore})`);
+              } else {
+                console.warn(`     Summary fetch failed. Fallback: assuming match completed in 90m.`);
+                homeScore90 = homeScoreVal;
+                awayScore90 = awayScoreVal;
+                homeScore120 = homeScoreVal;
+                awayScore120 = awayScoreVal;
+              }
+            }
+
+            const matchUpdate = {
               status: "completed",
               homeScore: homeScoreVal,
               awayScore: awayScoreVal
-            });
+            };
+            
+            if (isKnockout) {
+              matchUpdate.homeScore90 = homeScore90;
+              matchUpdate.awayScore90 = awayScore90;
+              matchUpdate.homeScore120 = homeScore120;
+              matchUpdate.awayScore120 = awayScore120;
+              matchUpdate.homeShootoutScore = homeShootoutScore;
+              matchUpdate.awayShootoutScore = awayShootoutScore;
+              matchUpdate.shootoutWinner = shootoutWinner;
+            }
+            
+            batch.update(matchRef, matchUpdate);
 
+            // Fetch and evaluate guesses
             const guessesQuery = query(collection(db, "guesses"), where("matchId", "==", dbMatch.id));
             const guessesSnap = await getDocs(guessesQuery);
             
             console.log(`   👥 Evaluating ${guessesSnap.docs.length} user predictions...`);
             for (const guessDoc of guessesSnap.docs) {
               const guessData = guessDoc.data();
-              const isCorrect = guessData.homeGuess === homeScoreVal && guessData.awayGuess === awayScoreVal;
-              const pointsEarned = isCorrect ? 1 : 0;
+              let pointsEarned = 0;
+
+              if (isKnockout) {
+                // Knockout Scoring Logic
+                const homeGuess90 = guessData.homeGuess90 !== undefined ? guessData.homeGuess90 : guessData.homeGuess;
+                const awayGuess90 = guessData.awayGuess90 !== undefined ? guessData.awayGuess90 : guessData.awayGuess;
+                const homeGuess120 = guessData.homeGuess120 !== undefined ? guessData.homeGuess120 : homeGuess90;
+                const awayGuess120 = guessData.awayGuess120 !== undefined ? guessData.awayGuess120 : awayGuess90;
+                const shootoutWinnerGuess = guessData.shootoutWinnerGuess || null;
+                const homeShootoutGuess = guessData.homeShootoutGuess !== undefined ? guessData.homeShootoutGuess : null;
+                const awayShootoutGuess = guessData.awayShootoutGuess !== undefined ? guessData.awayShootoutGuess : null;
+
+                const isCorrect90 = homeGuess90 === homeScore90 && awayGuess90 === awayScore90;
+                const isDraw90 = homeScore90 === awayScore90;
+                const isGuessDraw90 = homeGuess90 === awayGuess90;
+
+                const isCorrect120 = isDraw90 && isGuessDraw90 && (homeGuess120 === homeScore120 && awayGuess120 === awayScore120);
+                const isDraw120 = isDraw90 && (homeScore120 === awayScore120);
+                const isGuessDraw120 = isGuessDraw90 && (homeGuess120 === awayGuess120);
+
+                const isCorrectWinner = isDraw120 && isGuessDraw120 && (shootoutWinnerGuess === shootoutWinner);
+                const isCorrectShootoutScore = isDraw120 && isGuessDraw120 && 
+                                              (homeShootoutGuess === homeShootoutScore && awayShootoutGuess === awayShootoutScore);
+
+                if (isCorrect90) pointsEarned += 1.0;
+                if (isCorrect120) pointsEarned += 1.0;
+                if (isCorrectWinner) pointsEarned += 0.5;
+                if (isCorrectShootoutScore) pointsEarned += 1.5;
+
+                console.log(`     User ${guessData.userId}: Guess90: ${homeGuess90}-${awayGuess90} (${isCorrect90 ? '✔' : '❌'}), Guess120: ${homeGuess120}-${awayGuess120} (${isCorrect120 ? '✔' : '❌'}), PenWinner: ${shootoutWinnerGuess} (${isCorrectWinner ? '✔' : '❌'}), PenScore: ${homeShootoutGuess}-${awayShootoutGuess} (${isCorrectShootoutScore ? '✔' : '❌'}) => +${pointsEarned} pts`);
+              } else {
+                // Group Stage Logic (Standard)
+                const isCorrect = guessData.homeGuess === homeScoreVal && guessData.awayGuess === awayScoreVal;
+                pointsEarned = isCorrect ? 1 : 0;
+                console.log(`     User ${guessData.userId}: Guess: ${guessData.homeGuess}-${guessData.awayGuess} (${isCorrect ? '✔' : '❌'}) => +${pointsEarned} pts`);
+              }
 
               batch.update(doc(db, "guesses", guessDoc.id), { pointsEarned });
 
-              if (isCorrect) {
-                console.log(`     🎉 Point earned by User: ${guessData.userId}`);
-                batch.update(doc(db, "users", guessData.userId), {
-                  points: increment(1)
-                });
+              if (pointsEarned > 0) {
+                const userRef = doc(db, "users", guessData.userId);
+                const pointsUpdate = {
+                  points: increment(pointsEarned)
+                };
+                if (isKnockout) {
+                  pointsUpdate.knockoutPoints = increment(pointsEarned);
+                } else {
+                  pointsUpdate.groupPoints = increment(pointsEarned);
+                }
+                batch.update(userRef, pointsUpdate);
               }
             }
           } else {
