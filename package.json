@@ -1,7 +1,7 @@
 {
   "name": "worldcuproomiebet",
   "private": true,
-  "version": "1.1.11",
+  "version": "1.2.0",
   "changelog": [
     "Added self-service password recovery flow 🔑",
     "Improved update banner with a collapsible changelog list 📋"
