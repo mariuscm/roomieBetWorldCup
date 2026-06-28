@@ -3,6 +3,10 @@
   "private": true,
   "version": "1.2.4",
   "changelog": [
+    "--- Version 1.2.4 ---",
+    "Auto-clears extra time and shootout predictions when changing a prediction to a regular-time win 🧹",
+    "Fixed blank/empty draw predictions defaulting safely to regular-time scores instead of NaN parsing 🛠️",
+    "Released updated Firestore security rules to allow regular users to clear scheduled predictions cleanly 🔒",
     "--- Version 1.2.3 ---",
     "Add version history in user menu",
     "--- Version 1.2.2 ---",
