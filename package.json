@@ -1,7 +1,7 @@
 {
   "name": "worldcuproomiebet",
   "private": true,
-  "version": "1.2.3",
+  "version": "1.2.4",
   "changelog": [
     "--- Version 1.2.3 ---",
     "Add version history in user menu",
