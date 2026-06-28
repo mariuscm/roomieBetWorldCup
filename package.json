@@ -1,7 +1,7 @@
 {
   "name": "worldcuproomiebet",
   "private": true,
-  "version": "1.2.2",
+  "version": "1.2.3",
   "changelog": [
     "--- Version 1.2.2 ---",
     "Simplified placeholder texts in extra time and shootout inputs to simply Home and Away ✍️",
