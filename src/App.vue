@@ -3147,7 +3147,7 @@ onUnmounted(() => {
                 class="btn btn-secondary btn-toggle-predictions" 
                 @click="expandedMatches[match.id] = !expandedMatches[match.id]"
               >
-                👥 {{ expandedMatches[match.id] ? 'Hide' : 'Show' }} Predictions ({{ getOtherGuessesCount(match.id) }})
+                👥 {{ expandedMatches[match.id] ? 'Hide' : 'Show' }} Other Predictions ({{ getOtherGuessesCount(match.id) }})
               </button>
               
               <div v-if="expandedMatches[match.id]" class="predictions-expanded-list">
@@ -3668,6 +3668,7 @@ onUnmounted(() => {
           <input type="checkbox" v-model="dontShowRulesAgain" style="width: 16px; height: 16px; margin: 0; cursor: pointer;" />
           Don't show again
         </label>
+        <button type="button" class="btn btn-secondary" @click="closeScoringRules" style="width: auto; padding: 0.5rem 1.25rem; margin: 0;">Got it, thanks!</button>
       </div>
     </div>
   </dialog>
