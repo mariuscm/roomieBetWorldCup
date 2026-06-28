@@ -38,6 +38,7 @@ const predictionInputs = ref({})
 const leaderboard = ref([])
 const leaderboardFilter = ref('overall') // 'overall' | 'group' | 'knockout'
 const knockoutStageEnabled = ref(false)
+const showGroupMatchesHistory = ref(false)
 let settingsUnsub = null
 const collapsedDays = ref({})
 const hasScrolledToCurrent = ref(false)
@@ -47,12 +48,19 @@ const activeAdminSubTab = ref('users') // 'users' | 'scores' | 'setup'
 const showUserMenu = ref(false)
 const userMenuRef = ref(null)
 const scoringRulesDialogRef = ref(null)
+const dontShowRulesAgain = ref(localStorage.getItem('dontShowKnockoutRulesAgain') === 'true')
 
 const showScoringRules = () => {
+  dontShowRulesAgain.value = localStorage.getItem('dontShowKnockoutRulesAgain') === 'true'
   scoringRulesDialogRef.value?.showModal()
 }
 
 const closeScoringRules = () => {
+  if (dontShowRulesAgain.value) {
+    localStorage.setItem('dontShowKnockoutRulesAgain', 'true')
+  } else {
+    localStorage.removeItem('dontShowKnockoutRulesAgain')
+  }
   scoringRulesDialogRef.value?.close()
 }
 
@@ -72,6 +80,11 @@ const handleDialogBackdropClick = (event) => {
     event.clientX <= rect.left + rect.width
   )
   if (!isDialogContent) {
+    if (dontShowRulesAgain.value) {
+      localStorage.setItem('dontShowKnockoutRulesAgain', 'true')
+    } else {
+      localStorage.removeItem('dontShowKnockoutRulesAgain')
+    }
     dialog.close()
   }
 }
@@ -297,7 +310,10 @@ const isAdminUser = computed(() => {
 
 const visibleMatches = computed(() => {
   if (knockoutStageEnabled.value) {
-    return processedMatches.value
+    if (showGroupMatchesHistory.value) {
+      return processedMatches.value
+    }
+    return processedMatches.value.filter(m => m.stage === 'knockout')
   }
   return processedMatches.value.filter(m => m.stage !== 'knockout')
 })
@@ -834,6 +850,7 @@ watch(matches, (newVal) => {
 
 const handleMatchesTabClick = () => {
   activeTab.value = 'matches'
+  showGroupMatchesHistory.value = false
   nextTick(() => {
     setTimeout(() => {
       scrollToCurrentDay()
@@ -2716,11 +2733,10 @@ onMounted(() => {
     if (currentUser) {
       initRealtimeData(currentUser)
       
-      // Auto-open knockout scoring rules if they haven't seen them yet in this version (1.2.1)
+      // Auto-open knockout scoring rules on load unless they checked "Don't show again"
       setTimeout(() => {
-        if (!localStorage.getItem('hasSeenKnockoutRules-v1.2.1')) {
+        if (localStorage.getItem('dontShowKnockoutRulesAgain') !== 'true') {
           showScoringRules()
-          localStorage.setItem('hasSeenKnockoutRules-v1.2.1', 'true')
         }
       }, 1200)
     }
@@ -2834,6 +2850,17 @@ onUnmounted(() => {
 
     <!-- Matches Content -->
     <section v-if="activeTab === 'matches'" class="matches-list">
+      <!-- Group Stage History Toggle Link -->
+      <div v-if="knockoutStageEnabled && processedMatches.length > 0" class="history-toggle-container" style="margin-bottom: 1.5rem; text-align: center; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); padding: 0.8rem; border-radius: var(--input-radius);">
+        <a 
+          href="#" 
+          @click.prevent="showGroupMatchesHistory = !showGroupMatchesHistory"
+          style="color: var(--primary); font-size: 0.9rem; text-decoration: none; font-weight: 500; display: inline-flex; align-items: center; gap: 0.35rem;"
+        >
+          <span>📁</span> {{ showGroupMatchesHistory ? 'Hide Group Stage Matches' : 'View Historical Group Matches Results & Predictions' }}
+        </a>
+      </div>
+
       <div v-if="processedMatches.length === 0" class="empty-state">
         <div class="empty-state-icon">📅</div>
         <p>No matches loaded yet. Ask the admin to seed the matches.</p>
@@ -2905,7 +2932,7 @@ onUnmounted(() => {
 
             <!-- Guess inputs / points presentation -->
             <div class="prediction-box">
-              <div class="prediction-label" v-if="match.status === 'completed' || !(match.stage === 'knockout' && typeof predictionInputs[match.id]?.homeGuess === 'number' && typeof predictionInputs[match.id]?.awayGuess === 'number' && predictionInputs[match.id]?.homeGuess === predictionInputs[match.id]?.awayGuess)">
+              <div class="prediction-label">
                 {{ match.status === 'completed' ? 'Your Guess:' : 'Predict Score:' }}
               </div>
               
@@ -2951,45 +2978,47 @@ onUnmounted(() => {
               <!-- Case 3: Match is open for predictions -->
               <div v-else-if="predictionInputs[match.id]" class="prediction-inputs" style="flex-wrap: wrap;">
                 <div v-if="match.stage === 'knockout' && typeof predictionInputs[match.id].homeGuess === 'number' && typeof predictionInputs[match.id].awayGuess === 'number' && predictionInputs[match.id].homeGuess === predictionInputs[match.id].awayGuess" style="font-size: 0.8rem; color: var(--accent); font-weight: 600; width: 100%; margin-bottom: 0.25rem;">
-                  📋 Regular Time Prediction (90 mins):
+                  📋 Regular Time (90 mins) [+1 pt]:
                 </div>
-                <div style="display: flex; align-items: center; gap: 0.5rem; width: 100%;">
-                  <input 
-                    type="number" 
-                    placeholder="Home" 
-                    min="0" 
-                    step="1"
-                    v-model.number="predictionInputs[match.id].homeGuess"
-                    @input="syncDefaultExtraTime(match.id)"
-                  />
-                  <span>-</span>
-                  <input 
-                    type="number" 
-                    placeholder="Away" 
-                    min="0" 
-                    step="1"
-                    v-model.number="predictionInputs[match.id].awayGuess"
-                    @input="syncDefaultExtraTime(match.id)"
-                  />
-                  <button 
-                    v-if="match.stage !== 'knockout' || typeof predictionInputs[match.id].homeGuess !== 'number' || typeof predictionInputs[match.id].awayGuess !== 'number' || predictionInputs[match.id].homeGuess !== predictionInputs[match.id].awayGuess"
-                    class="btn" 
-                    :class="{ 'btn-saved': isPredictionSaved(match.id) }"
-                    style="width: auto; padding: 0.4rem 0.8rem; font-size: 0.85rem;"
-                    @click="submitGuess(match.id)"
-                    :disabled="predictionInputs[match.id].homeGuess === null || predictionInputs[match.id].awayGuess === null || predictionInputs[match.id].homeGuess === undefined || predictionInputs[match.id].awayGuess === undefined"
-                  >
-                    {{ isPredictionSaved(match.id) ? 'SAVED' : 'Save' }}
-                  </button>
-                </div>
+                 <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 1rem;">
+                   <div style="display: flex; align-items: center; gap: 0.5rem;">
+                     <input 
+                       type="number" 
+                       placeholder="Home" 
+                       min="0" 
+                       step="1"
+                       v-model.number="predictionInputs[match.id].homeGuess"
+                       @input="syncDefaultExtraTime(match.id)"
+                     />
+                     <span>-</span>
+                     <input 
+                       type="number" 
+                       placeholder="Away" 
+                       min="0" 
+                       step="1"
+                       v-model.number="predictionInputs[match.id].awayGuess"
+                       @input="syncDefaultExtraTime(match.id)"
+                     />
+                   </div>
+                   <button 
+                     v-if="match.stage !== 'knockout' || typeof predictionInputs[match.id].homeGuess !== 'number' || typeof predictionInputs[match.id].awayGuess !== 'number' || predictionInputs[match.id].homeGuess !== predictionInputs[match.id].awayGuess"
+                     class="btn" 
+                     :class="{ 'btn-saved': isPredictionSaved(match.id) }"
+                     style="width: auto; padding: 0.4rem 0.8rem; font-size: 0.85rem; margin: 0;"
+                     @click="submitGuess(match.id)"
+                     :disabled="predictionInputs[match.id].homeGuess === null || predictionInputs[match.id].awayGuess === null || predictionInputs[match.id].homeGuess === undefined || predictionInputs[match.id].awayGuess === undefined"
+                   >
+                     {{ isPredictionSaved(match.id) ? 'SAVED' : 'Save' }}
+                   </button>
+                 </div>
 
                 <!-- Extra Time (120m) Prediction inputs -->
                 <div v-if="match.stage === 'knockout' && typeof predictionInputs[match.id].homeGuess === 'number' && typeof predictionInputs[match.id].awayGuess === 'number' && predictionInputs[match.id].homeGuess === predictionInputs[match.id].awayGuess" style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.75rem; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 0.75rem; width: 100%;">
-                  <div style="font-size: 0.8rem; color: var(--accent); font-weight: 600;">⚡ Extra Time Prediction (120 mins):</div>
+                  <div style="font-size: 0.8rem; color: var(--accent); font-weight: 600;">⚡ Extra Time (120 mins) [+1 pt]:</div>
                   <div style="display: flex; align-items: center; gap: 0.5rem;">
                     <input 
                       type="number" 
-                      placeholder="Home ET" 
+                      placeholder="Home" 
                       min="0" 
                       step="1"
                       v-model.number="predictionInputs[match.id].homeGuess120"
@@ -2998,7 +3027,7 @@ onUnmounted(() => {
                     <span>-</span>
                     <input 
                       type="number" 
-                      placeholder="Away ET" 
+                      placeholder="Away" 
                       min="0" 
                       step="1"
                       v-model.number="predictionInputs[match.id].awayGuess120"
@@ -3012,7 +3041,7 @@ onUnmounted(() => {
                   
                   <!-- Penalty Shootout Prediction inputs -->
                   <div v-if="isExtraTimeValid(match.id) && predictionInputs[match.id].homeGuess120 === predictionInputs[match.id].awayGuess120" style="display: flex; flex-direction: column; gap: 0.75rem; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 0.75rem;">
-                    <div style="font-size: 0.8rem; color: var(--accent); font-weight: 600;">⚽ Penalty shootout winner (+0.5 pts):</div>
+                    <div style="font-size: 0.8rem; color: var(--accent); font-weight: 600;">⚽ Penalty shootout winner [+0.5 pts]:</div>
                     <div style="display: flex; gap: 0.5rem;">
                       <button 
                         class="btn"
@@ -3032,11 +3061,11 @@ onUnmounted(() => {
                       </button>
                     </div>
                     
-                    <div style="font-size: 0.8rem; color: var(--accent); font-weight: 600; margin-top: 0.25rem;">🎯 Shootout score (Optional, +1.5 pts):</div>
+                    <div style="font-size: 0.8rem; color: var(--accent); font-weight: 600; margin-top: 0.25rem;">🎯 Shootout score (Optional) [+1.5 pts]:</div>
                     <div style="display: flex; align-items: center; gap: 0.5rem;">
                       <input 
                         type="number" 
-                        placeholder="Pens Home" 
+                        placeholder="Home" 
                         min="0" 
                         step="1"
                         v-model.number="predictionInputs[match.id].homeShootoutGuess"
@@ -3045,7 +3074,7 @@ onUnmounted(() => {
                       <span>-</span>
                       <input 
                         type="number" 
-                        placeholder="Pens Away" 
+                        placeholder="Away" 
                         min="0" 
                         step="1"
                         v-model.number="predictionInputs[match.id].awayShootoutGuess"
@@ -3607,10 +3636,10 @@ onUnmounted(() => {
             </div>
 
             <div class="rule-point">
-              <span class="rule-badge">+0.5 Pt</span>
+              <span class="rule-badge">+0.5 Pts</span>
               <div>
                 <strong>Penalty Shootout Winner</strong>
-                <p>If the match is a draw after extra time, you predict the shootout winner. Correct selection earns +0.5 pt.</p>
+                <p>If the match is a draw after extra time, you predict the shootout winner. Correct selection earns +0.5 pts.</p>
               </div>
             </div>
 
@@ -3627,10 +3656,19 @@ onUnmounted(() => {
             💡 <em>Note: If you predict a decisive win in regular time (e.g. 3-1), the extra-time and shootout inputs are bypassed since they won't occur.</em>
           </p>
         </section>
+
+        <!-- Availability notice -->
+        <p class="rules-menu-note" style="margin-top: 1rem; font-size: 0.82rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.35rem; border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 0.75rem;">
+          ℹ️ <em>You can access these rules anytime from your user menu in the top right.</em>
+        </p>
       </div>
 
-      <div class="dialog-footer">
-        <button type="button" class="btn btn-secondary" @click="closeScoringRules" style="width: auto; padding: 0.5rem 1.25rem;">Got it, thanks!</button>
+      <div class="dialog-footer" style="justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
+        <label style="display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--text-secondary); cursor: pointer; user-select: none; margin: 0;">
+          <input type="checkbox" v-model="dontShowRulesAgain" style="width: 16px; height: 16px; margin: 0; cursor: pointer;" />
+          Don't show again
+        </label>
+        <button type="button" class="btn btn-secondary" @click="closeScoringRules" style="width: auto; padding: 0.5rem 1.25rem; margin: 0;">Got it, thanks!</button>
       </div>
     </div>
   </dialog>
