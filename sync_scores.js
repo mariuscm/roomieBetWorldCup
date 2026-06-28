@@ -225,13 +225,12 @@ async function syncScores() {
     };
 
     // 2. Fetch ESPN live score feed
-    console.log("Fetching live scores from ESPN (yesterday, today, tomorrow)...");
+    console.log("Fetching live scores from ESPN (yesterday, today, and next 7 days)...");
     const now = new Date();
-    const dates = [
-      getESPNFormatDate(new Date(now.getTime() - 24 * 60 * 60 * 1000)), // yesterday
-      getESPNFormatDate(now),                                          // today
-      getESPNFormatDate(new Date(now.getTime() + 24 * 60 * 60 * 1000))  // tomorrow
-    ];
+    const dates = [];
+    for (let i = -1; i <= 7; i++) {
+      dates.push(getESPNFormatDate(new Date(now.getTime() + i * 24 * 60 * 60 * 1000)));
+    }
 
     const results = await Promise.all(
       dates.map(dateStr => 
@@ -252,7 +251,7 @@ async function syncScores() {
       console.log("No events found in ESPN feed.");
       return;
     }
-    console.log(`Found ${events.length} match events across 3 days in ESPN scoreboard.`);
+    console.log(`Found ${events.length} match events across 9 days in ESPN scoreboard.`);
 
     // 3. Fetch matches from Firestore
     console.log("Reading matches database...");

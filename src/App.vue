@@ -2200,6 +2200,129 @@ const seedDatabase = async () => {
   }
 }
 
+const seedRoundOf32Matches = async () => {
+  const confirmation = prompt('WARNING: This will append the 16 Round of 32 matches to your matches collection and initialize users\' group stage points. Type "KNOCKOUT" to proceed:')
+  if (confirmation !== 'KNOCKOUT') {
+    return
+  }
+  adminError.value = ''
+  adminSuccess.value = ''
+  try {
+    const flagMap = {
+      "South Africa": "🇿🇦",
+      "Canada": "🇨🇦",
+      "Brazil": "🇧🇷",
+      "Japan": "🇯🇵",
+      "Germany": "🇩🇪",
+      "Paraguay": "🇵🇾",
+      "Netherlands": "🇳🇱",
+      "Morocco": "🇲🇦",
+      "Ivory Coast": "🇨🇮",
+      "Norway": "🇳🇴",
+      "France": "🇫🇷",
+      "Sweden": "🇸🇪",
+      "Mexico": "🇲🇽",
+      "Belgium": "🇧🇪",
+      "United States": "🇺🇸",
+      "Bosnia-Herzegovina": "🇧🇦",
+      "Bosnia & Herzegovina": "🇧🇦",
+      "Spain": "🇪🇸",
+      "Switzerland": "🇨🇭",
+      "Australia": "🇦🇺",
+      "Egypt": "🇪🇬",
+      "Argentina": "🇦🇷",
+      "Cape Verde": "🇨🇻"
+    };
+
+    const getFlag = (teamName) => {
+      return flagMap[teamName] || "🏳️";
+    };
+
+    const roundOf32Matches = [
+      { homeTeam: "South Africa", awayTeam: "Canada", date: "2026-06-28T19:00:00Z", espnEventId: "760486" },
+      { homeTeam: "Brazil", awayTeam: "Japan", date: "2026-06-29T17:00:00Z", espnEventId: "760487" },
+      { homeTeam: "Germany", awayTeam: "Paraguay", date: "2026-06-29T20:30:00Z", espnEventId: "760489" },
+      { homeTeam: "Netherlands", awayTeam: "Morocco", date: "2026-06-30T01:00:00Z", espnEventId: "760488" },
+      { homeTeam: "Ivory Coast", awayTeam: "Norway", date: "2026-06-30T17:00:00Z", espnEventId: "760490" },
+      { homeTeam: "France", awayTeam: "Sweden", date: "2026-06-30T21:00:00Z", espnEventId: "760492" },
+      { homeTeam: "Mexico", awayTeam: "Third Place Group C/E/F/H/I", date: "2026-07-01T01:00:00Z", espnEventId: "760491" },
+      { homeTeam: "Group L Winner", awayTeam: "Third Place Group E/H/I/J/K", date: "2026-07-01T16:00:00Z", espnEventId: "760495" },
+      { homeTeam: "Belgium", awayTeam: "Third Place Group A/E/H/I/J", date: "2026-07-01T20:00:00Z", espnEventId: "760493" },
+      { homeTeam: "United States", awayTeam: "Bosnia-Herzegovina", date: "2026-07-02T00:00:00Z", espnEventId: "760494" },
+      { homeTeam: "Spain", awayTeam: "Group J 2nd Place", date: "2026-07-02T19:00:00Z", espnEventId: "760497" },
+      { homeTeam: "Group K 2nd Place", awayTeam: "Group L 2nd Place", date: "2026-07-02T23:00:00Z", espnEventId: "760496" },
+      { homeTeam: "Switzerland", awayTeam: "Third Place Group E/F/G/I/J", date: "2026-07-03T03:00:00Z", espnEventId: "760498" },
+      { homeTeam: "Australia", awayTeam: "Egypt", date: "2026-07-03T18:00:00Z", espnEventId: "760499" },
+      { homeTeam: "Argentina", awayTeam: "Cape Verde", date: "2026-07-03T22:00:00Z", espnEventId: "760500" },
+      { homeTeam: "Group K Winner", awayTeam: "Third Place Group D/E/I/J/L", date: "2026-07-04T01:30:00Z", espnEventId: "760501" }
+    ];
+
+    const batch = writeBatch(db)
+
+    // 1. Initialize settings/app (disabled by default)
+    const settingsRef = doc(db, "settings", "app")
+    batch.set(settingsRef, { knockoutStageEnabled: false }, { merge: true })
+
+    // 2. Migrate existing users schemas
+    const usersSnap = await getDocs(collection(db, "users"))
+    let userMigrationCount = 0
+    usersSnap.forEach((userDoc) => {
+      const data = userDoc.data()
+      if (data.groupPoints === undefined || data.knockoutPoints === undefined) {
+        batch.update(userDoc.ref, {
+          groupPoints: data.points !== undefined ? data.points : 0,
+          knockoutPoints: 0
+        })
+        userMigrationCount++
+      }
+    })
+
+    // 3. Seed matches safely
+    const matchesSnap = await getDocs(collection(db, "matches"))
+    const existingMatches = matchesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+
+    let matchesAddedCount = 0
+    for (const newMatch of roundOf32Matches) {
+      const isDuplicate = existingMatches.some(m => m.espnEventId === newMatch.espnEventId)
+      if (!isDuplicate) {
+        const matchRef = doc(collection(db, "matches"))
+        batch.set(matchRef, {
+          homeTeam: newMatch.homeTeam,
+          awayTeam: newMatch.awayTeam,
+          homeFlag: getFlag(newMatch.homeTeam),
+          awayFlag: getFlag(newMatch.awayTeam),
+          date: Timestamp.fromDate(new Date(newMatch.date)),
+          homeScore: null,
+          awayScore: null,
+          status: "scheduled",
+          stage: "knockout",
+          espnEventId: newMatch.espnEventId,
+          homeScore90: null,
+          awayScore90: null,
+          homeScore120: null,
+          awayScore120: null,
+          homeShootoutScore: null,
+          awayShootoutScore: null,
+          shootoutWinner: null
+        })
+        matchesAddedCount++
+      } else {
+        const existing = existingMatches.find(m => m.espnEventId === newMatch.espnEventId)
+        if (existing.stage !== "knockout") {
+          batch.update(doc(db, "matches", existing.id), { stage: "knockout" })
+        }
+      }
+    }
+
+    await batch.commit()
+    adminSuccess.value = `Successfully imported ${matchesAddedCount} Round of 32 matches and migrated ${userMigrationCount} users!`
+    setTimeout(() => adminSuccess.value = '', 5000)
+  } catch (err) {
+    adminError.value = `Failed to seed Round of 32: ${err.message}`
+    setTimeout(() => adminError.value = '', 5000)
+  }
+}
+
 // Admin Complete Match & Distribute Points
 const completeMatch = async (matchId) => {
   adminError.value = ''
@@ -2426,10 +2549,11 @@ const resetMatch = async (matchId) => {
 }
 
 const toggleKnockoutStage = async () => {
+  const targetState = !knockoutStageEnabled.value
   try {
     const settingsRef = doc(db, 'settings', 'app')
-    await setDoc(settingsRef, { knockoutStageEnabled: !knockoutStageEnabled.value }, { merge: true })
-    adminSuccess.value = `Knockout stage features ${!knockoutStageEnabled.value ? 'enabled' : 'disabled'} successfully!`
+    await setDoc(settingsRef, { knockoutStageEnabled: targetState }, { merge: true })
+    adminSuccess.value = `Knockout stage features ${targetState ? 'enabled' : 'disabled'} successfully!`
     setTimeout(() => adminSuccess.value = '', 4000)
   } catch (err) {
     adminError.value = `Failed to toggle knockout stage: ${err.message}`
@@ -3284,13 +3408,18 @@ onUnmounted(() => {
       <div v-if="activeAdminSubTab === 'setup'" class="admin-card">
         <h3>🌱 Database Seeding</h3>
         <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1rem;">
-          Populate or overwrite the database with group stage matches starting tomorrow (June 19, 2026).
+          Populate or overwrite the database with group stage matches, or migrate to the Round of 32.
         </p>
-        <button class="btn btn-secondary" @click="seedDatabase">
-          Seed Group Stage Matches (June 19+)
-        </button>
+        <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+          <button class="btn btn-secondary" @click="seedDatabase" style="width: auto; margin-bottom: 0;">
+            Seed Group Stage Matches (June 19+)
+          </button>
+          <button class="btn btn-secondary" @click="seedRoundOf32Matches" style="width: auto; background: var(--primary-glow); color: var(--primary); border-color: rgba(0, 245, 155, 0.3); margin-bottom: 0;">
+            ⚡ Seed Round of 32 Matches & Migrate Users
+          </button>
+        </div>
         <span style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-top: 0.5rem;">
-          Note: This resets current scores and deletes existing predictions.
+          Note: Seeding Round of 32 will preserve and copy current scores to group stage points, and append the 16 knockout matches safely.
         </span>
       </div>
 
