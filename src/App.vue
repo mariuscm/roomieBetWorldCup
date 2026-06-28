@@ -1972,8 +1972,8 @@ const submitGuess = async (matchId) => {
   const homeG90 = parseInt(guess.homeGuess)
   const awayG90 = parseInt(guess.awayGuess)
 
-  let homeG120 = homeG90
-  let awayG120 = awayG90
+  let homeG120 = null
+  let awayG120 = null
   let shootoutWinnerGuess = null
   let homeShootoutGuess = null
   let awayShootoutGuess = null
@@ -1994,8 +1994,8 @@ const submitGuess = async (matchId) => {
         return
       }
 
-      homeG120 = parseInt(guess.homeGuess120)
-      awayG120 = parseInt(guess.awayGuess120)
+      homeG120 = (guess.homeGuess120 !== undefined && guess.homeGuess120 !== null && guess.homeGuess120 !== '') ? parseInt(guess.homeGuess120) : homeG90
+      awayG120 = (guess.awayGuess120 !== undefined && guess.awayGuess120 !== null && guess.awayGuess120 !== '') ? parseInt(guess.awayGuess120) : awayG90
       
       if (homeG120 === awayG120) {
         shootoutWinnerGuess = guess.shootoutWinnerGuess || null
@@ -2065,6 +2065,14 @@ const submitGuess = async (matchId) => {
       submittedAt: Timestamp.now()
     }
     await setDoc(doc(db, 'guesses', guessId), guessData)
+
+    // Update local state to reflect saved/cleared properties
+    predictionInputs.value[matchId].homeGuess120 = homeG120
+    predictionInputs.value[matchId].awayGuess120 = awayG120
+    predictionInputs.value[matchId].shootoutWinnerGuess = shootoutWinnerGuess || ''
+    predictionInputs.value[matchId].homeShootoutGuess = homeShootoutGuess !== null ? homeShootoutGuess : ''
+    predictionInputs.value[matchId].awayShootoutGuess = awayShootoutGuess !== null ? awayShootoutGuess : ''
+
     adminSuccess.value = 'Guess saved!'
     setTimeout(() => adminSuccess.value = '', 3000)
   } catch (err) {
