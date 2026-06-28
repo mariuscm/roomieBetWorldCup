@@ -3668,7 +3668,6 @@ onUnmounted(() => {
           <input type="checkbox" v-model="dontShowRulesAgain" style="width: 16px; height: 16px; margin: 0; cursor: pointer;" />
           Don't show again
         </label>
-        <button type="button" class="btn btn-secondary" @click="closeScoringRules" style="width: auto; padding: 0.5rem 1.25rem; margin: 0;">Got it, thanks!</button>
       </div>
     </div>
   </dialog>
