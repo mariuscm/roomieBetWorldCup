@@ -46,6 +46,35 @@ const activeAdminSubTab = ref('users') // 'users' | 'scores' | 'setup'
 
 const showUserMenu = ref(false)
 const userMenuRef = ref(null)
+const scoringRulesDialogRef = ref(null)
+
+const showScoringRules = () => {
+  scoringRulesDialogRef.value?.showModal()
+}
+
+const closeScoringRules = () => {
+  scoringRulesDialogRef.value?.close()
+}
+
+const handleShowScoringRulesClick = () => {
+  showUserMenu.value = false
+  showScoringRules()
+}
+
+const handleDialogBackdropClick = (event) => {
+  const dialog = scoringRulesDialogRef.value
+  if (event.target !== dialog) return
+  const rect = dialog.getBoundingClientRect()
+  const isDialogContent = (
+    rect.top <= event.clientY &&
+    event.clientY <= rect.top + rect.height &&
+    rect.left <= event.clientX &&
+    event.clientX <= rect.left + rect.width
+  )
+  if (!isDialogContent) {
+    dialog.close()
+  }
+}
 
 const toggleUserMenu = (event) => {
   event.stopPropagation()
@@ -2686,6 +2715,14 @@ onMounted(() => {
     user.value = currentUser
     if (currentUser) {
       initRealtimeData(currentUser)
+      
+      // Auto-open knockout scoring rules if they haven't seen them yet in this version (1.2.1)
+      setTimeout(() => {
+        if (!localStorage.getItem('hasSeenKnockoutRules-v1.2.1')) {
+          showScoringRules()
+          localStorage.setItem('hasSeenKnockoutRules-v1.2.1', 'true')
+        }
+      }, 1200)
     }
   })
 })
@@ -2734,6 +2771,10 @@ onUnmounted(() => {
               <span class="dropdown-user-name">{{ processedUserProfile?.displayName || 'User' }}</span>
               <span class="dropdown-user-email">{{ user.email }}</span>
             </div>
+            <div class="dropdown-divider"></div>
+            <button class="dropdown-item" @click="handleShowScoringRulesClick">
+              <span>📋</span> Scoring Rules
+            </button>
             <div class="dropdown-divider"></div>
             <button class="dropdown-item" @click="handleLogout">
               <span>🚪</span> Sign Out
@@ -3528,6 +3569,71 @@ onUnmounted(() => {
       </button>
     </div>
   </div>
+
+  <!-- Native Dialog Modal for Scoring Rules -->
+  <dialog 
+    id="scoring-rules-dialog" 
+    ref="scoringRulesDialogRef"
+    closedby="any"
+    class="premium-dialog"
+    @click="handleDialogBackdropClick"
+  >
+    <div class="dialog-content">
+      <div class="dialog-header">
+        <h3>🏆 Scoring Rules</h3>
+        <button type="button" class="close-btn" @click="closeScoringRules">✕</button>
+      </div>
+      
+      <div class="dialog-body">
+        <section class="rules-section">
+          <h4>⚡ Knockout Stage Scoring</h4>
+          <p class="rules-intro">Since knockout matches must have a winner, the scoring accumulates across stages:</p>
+          
+          <div class="timeline-rule">
+            <div class="rule-point">
+              <span class="rule-badge">+1.0 Pt</span>
+              <div>
+                <strong>Regular Time (90 mins)</strong>
+                <p>Awarded for matching the exact score at the end of regulation time.</p>
+              </div>
+            </div>
+
+            <div class="rule-point">
+              <span class="rule-badge">+1.0 Pt</span>
+              <div>
+                <strong>Extra Time (120 mins)</strong>
+                <p>If the match is a draw at the end of regulation time, you predict the score after extra time. Correct exact score earns +1.0 pt.</p>
+              </div>
+            </div>
+
+            <div class="rule-point">
+              <span class="rule-badge">+0.5 Pt</span>
+              <div>
+                <strong>Penalty Shootout Winner</strong>
+                <p>If the match is a draw after extra time, you predict the shootout winner. Correct selection earns +0.5 pt.</p>
+              </div>
+            </div>
+
+            <div class="rule-point">
+              <span class="rule-badge">+1.5 Pts</span>
+              <div>
+                <strong>Penalty Shootout Score</strong>
+                <p>If the match goes to a shootout, matching the exact penalties score (e.g., 5-4) earns +1.5 pts.</p>
+              </div>
+            </div>
+          </div>
+          
+          <p class="rules-note">
+            💡 <em>Note: If you predict a decisive win in regular time (e.g. 3-1), the extra-time and shootout inputs are bypassed since they won't occur.</em>
+          </p>
+        </section>
+      </div>
+
+      <div class="dialog-footer">
+        <button type="button" class="btn btn-secondary" @click="closeScoringRules" style="width: auto; padding: 0.5rem 1.25rem;">Got it, thanks!</button>
+      </div>
+    </div>
+  </dialog>
 
   <!-- Update Notification Toast -->
   <div v-if="showUpdateBanner" class="update-toast" :class="{ 'expanded': showChangelog }">
