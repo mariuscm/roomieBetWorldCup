@@ -1,7 +1,7 @@
 {
   "name": "worldcuproomiebet",
   "private": true,
-  "version": "1.2.0",
+  "version": "1.2.1",
   "changelog": [
     "Integrated Round of 32 knockout stage features (extra-time, penalty shootouts) ⚽",
     "Added split leaderboard tabs (Overall, Group Stage, and Knockout Stage) 📊"
