@@ -3,6 +3,8 @@
   "private": true,
   "version": "1.2.3",
   "changelog": [
+    "--- Version 1.2.3 ---",
+    "Add version history in user menu",
     "--- Version 1.2.2 ---",
     "Simplified placeholder texts in extra time and shootout inputs to simply Home and Away ✍️",
     "Improved detailed predictions listing on mobile to wrap names (left-aligned) and scores (right-aligned) cleanly 📱",
