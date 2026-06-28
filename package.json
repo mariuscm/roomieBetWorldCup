@@ -16,7 +16,16 @@
     "Overlayed prediction labels on card borders and optimized inputs spacing for easier entry on all devices (down to 320px) 📱",
     "--- Version 1.2.0 ---",
     "Integrated Round of 32 knockout stage features (extra-time, penalty shootouts) ⚽",
-    "Added split leaderboard tabs (Overall, Group Stage, and Knockout Stage) 📊"
+    "Added split leaderboard tabs (Overall, Group Stage, and Knockout Stage) 📊",
+    "Added support for knockout match scoring, dynamic team resolution, and player point calculations ⚙️",
+    "Implemented admin dashboard setup options for user visibility toggles and database cleanup 🔧",
+    "--- Version 1.1.11 ---",
+    "Added collapsible changelog list directly to the version update notification banner 📜",
+    "Implemented Forgot Password functionality with automated email reset flow 📧",
+    "--- Version 1.1.10 ---",
+    "Added team name mapping normalization support for Bosnia & Herzegovina 🇧🇦",
+    "--- Version 1.1.9 ---",
+    "Enhanced app security by moving database configuration keys to secure environment variables 🔒"
   ],
   "type": "module",
   "scripts": {

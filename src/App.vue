@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
-import { version } from '../package.json'
+import { version, changelog } from '../package.json'
 import { auth, db } from './firebase'
 import { 
   signInWithEmailAndPassword, 
@@ -48,7 +48,44 @@ const activeAdminSubTab = ref('users') // 'users' | 'scores' | 'setup'
 const showUserMenu = ref(false)
 const userMenuRef = ref(null)
 const scoringRulesDialogRef = ref(null)
+const versionHistoryDialogRef = ref(null)
 const dontShowRulesAgain = ref(localStorage.getItem('dontShowKnockoutRulesAgain') === 'true')
+
+const formattedChangelog = computed(() => {
+  return changelog.map(item => {
+    const isHeader = item.startsWith('--- ')
+    const text = isHeader ? item.replace(/---/g, '').trim() : item
+    return { isHeader, text }
+  })
+})
+
+const showVersionHistory = () => {
+  versionHistoryDialogRef.value?.showModal()
+}
+
+const closeVersionHistory = () => {
+  versionHistoryDialogRef.value?.close()
+}
+
+const handleShowVersionHistoryClick = () => {
+  showUserMenu.value = false
+  showVersionHistory()
+}
+
+const handleVersionHistoryBackdropClick = (event) => {
+  const dialog = versionHistoryDialogRef.value
+  if (event.target !== dialog) return
+  const rect = dialog.getBoundingClientRect()
+  const isDialogContent = (
+    rect.top <= event.clientY &&
+    event.clientY <= rect.top + rect.height &&
+    rect.left <= event.clientX &&
+    event.clientX <= rect.left + rect.width
+  )
+  if (!isDialogContent) {
+    dialog.close()
+  }
+}
 
 const showScoringRules = () => {
   dontShowRulesAgain.value = localStorage.getItem('dontShowKnockoutRulesAgain') === 'true'
@@ -119,6 +156,22 @@ const showUpdateBanner = ref(false)
 const remoteVersion = ref('')
 const showChangelog = ref(false)
 const remoteChangelog = ref([])
+const latestRemoteChangelog = computed(() => {
+  if (!remoteChangelog.value || remoteChangelog.value.length === 0) return []
+  const latest = []
+  let headerCount = 0
+  for (const item of remoteChangelog.value) {
+    if (item.startsWith('--- ')) {
+      headerCount++
+      if (headerCount > 1) break
+      continue // Skip the header line itself inside the toast for a cleaner bullet points list
+    }
+    if (headerCount === 1) {
+      latest.push(item)
+    }
+  }
+  return latest.length > 0 ? latest : remoteChangelog.value
+})
 let versionCheckIntervalId = null
 
 let lastVersionCheckTime = 0
@@ -2791,6 +2844,9 @@ onUnmounted(() => {
             <button class="dropdown-item" @click="handleShowScoringRulesClick">
               <span>📋</span> Scoring Rules
             </button>
+            <button class="dropdown-item" @click="handleShowVersionHistoryClick">
+              <span>📜</span> Version History
+            </button>
             <div class="dropdown-divider"></div>
             <button class="dropdown-item" @click="handleLogout">
               <span>🚪</span> Sign Out
@@ -3668,7 +3724,43 @@ onUnmounted(() => {
           <input type="checkbox" v-model="dontShowRulesAgain" style="width: 16px; height: 16px; margin: 0; cursor: pointer;" />
           Don't show again
         </label>
-        <button type="button" class="btn btn-secondary" @click="closeScoringRules" style="width: auto; padding: 0.5rem 1.25rem; margin: 0;">Got it, thanks!</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Native Dialog Modal for Version History -->
+  <dialog 
+    id="version-history-dialog" 
+    ref="versionHistoryDialogRef"
+    closedby="any"
+    class="premium-dialog"
+    @click="handleVersionHistoryBackdropClick"
+  >
+    <div class="dialog-content">
+      <div class="dialog-header">
+        <h3>📜 Version History</h3>
+        <button type="button" class="close-btn" @click="closeVersionHistory">✕</button>
+      </div>
+      
+      <div class="dialog-body" style="padding: 1.5rem 1.75rem;">
+        <div class="version-history-list" style="display: flex; flex-direction: column; gap: 0.5rem;">
+          <div 
+            v-for="(item, idx) in formattedChangelog" 
+            :key="idx"
+            :class="{ 
+              'version-header-row': item.isHeader, 
+              'version-bullet-row': !item.isHeader 
+            }"
+            :style="item.isHeader ? 'font-family: var(--font-display); font-weight: 700; color: var(--primary); font-size: 1.05rem; margin-top: 0.75rem; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 0.25rem;' : 'font-size: 0.88rem; color: var(--text-secondary); line-height: 1.4; padding-left: 1rem; position: relative; margin-bottom: 0.25rem;'"
+          >
+            <span v-if="!item.isHeader" style="position: absolute; left: 0; color: var(--accent);">•</span>
+            {{ item.text }}
+          </div>
+        </div>
+      </div>
+
+      <div class="dialog-footer">
+        <button type="button" class="btn btn-secondary" @click="closeVersionHistory" style="width: auto; padding: 0.5rem 1.25rem; margin: 0;">Close</button>
       </div>
     </div>
   </dialog>
@@ -3683,7 +3775,7 @@ onUnmounted(() => {
         </div>
         <div class="update-toast-desc">
           v{{ remoteVersion }} is ready. 
-          <a v-if="remoteChangelog.length > 0" href="#" class="changelog-toggle" @click.prevent="showChangelog = !showChangelog">
+          <a v-if="latestRemoteChangelog.length > 0" href="#" class="changelog-toggle" @click.prevent="showChangelog = !showChangelog">
             {{ showChangelog ? 'Hide changes ▴' : 'Show changes ▾' }}
           </a>
         </div>
@@ -3693,10 +3785,10 @@ onUnmounted(() => {
       </button>
     </div>
 
-    <!-- Collapsible Changelog List -->
-    <div v-if="showChangelog && remoteChangelog.length > 0" class="update-toast-changelog">
+    <!-- Collapsible Changelog List (Only latest remote version changes) -->
+    <div v-if="showChangelog && latestRemoteChangelog.length > 0" class="update-toast-changelog">
       <ul>
-        <li v-for="(change, idx) in remoteChangelog" :key="idx">
+        <li v-for="(change, idx) in latestRemoteChangelog" :key="idx">
           {{ change }}
         </li>
       </ul>
