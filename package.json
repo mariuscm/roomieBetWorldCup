@@ -1,7 +1,7 @@
 {
   "name": "worldcuproomiebet",
   "private": true,
-  "version": "1.2.4",
+  "version": "1.2.5",
   "changelog": [
     "--- Version 1.2.5 ---",
     "Excluded knockout matches from temporary client-side points calculations to prevent incorrect leaderboard scoring 🛡️",
