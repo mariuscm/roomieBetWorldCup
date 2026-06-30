@@ -422,16 +422,16 @@ const processedLeaderboard = computed(() => {
     let pendingKnockout = 0
     
     pendingCompletedMatches.value.forEach(match => {
+      if (match.stage === 'knockout') {
+        // Skip client-side calculation for knockout matches to avoid incorrect/incomplete points
+        return
+      }
       const guess = allGuesses.value.find(g => g.matchId === match.id && g.userId === player.uid)
       if (guess && guess.homeGuess !== null && guess.awayGuess !== null) {
         const isCorrect = Number(guess.homeGuess) === Number(match.homeScore) && 
                           Number(guess.awayGuess) === Number(match.awayScore)
         if (isCorrect) {
-          if (match.stage === 'knockout') {
-            pendingKnockout += 1
-          } else {
-            pendingGroup += 1
-          }
+          pendingGroup += 1
         }
       }
     })
@@ -523,10 +523,9 @@ const stopSimulation = () => {
   simulatorMessage.value = 'Simulation stopped.'
 }
 
-// Computed userGuesses for points/badge rendering
 const userGuesses = computed(() => {
   const guessesObj = {}
-  processedMatches.value.forEach(match => {
+  matches.value.forEach(match => {
     guessesObj[match.id] = { homeGuess: null, awayGuess: null, pointsEarned: null }
   })
   allGuesses.value.forEach(guess => {
@@ -541,40 +540,8 @@ const userGuesses = computed(() => {
       const guess = guessesObj[match.id]
       if (guess && guess.homeGuess !== null && guess.awayGuess !== null && guess.pointsEarned === null) {
         if (match.stage === 'knockout') {
-          const homeScore90 = match.homeScore90 !== undefined && match.homeScore90 !== null ? match.homeScore90 : match.homeScore;
-          const awayScore90 = match.awayScore90 !== undefined && match.awayScore90 !== null ? match.awayScore90 : match.awayScore;
-          const homeScore120 = match.homeScore120 !== undefined && match.homeScore120 !== null ? match.homeScore120 : match.homeScore;
-          const awayScore120 = match.awayScore120 !== undefined && match.awayScore120 !== null ? match.awayScore120 : match.awayScore;
-          const homeShootoutScore = match.homeShootoutScore !== undefined ? match.homeShootoutScore : null;
-          const awayShootoutScore = match.awayShootoutScore !== undefined ? match.awayShootoutScore : null;
-          const shootoutWinner = match.shootoutWinner || null;
-
-          const homeGuess90 = guess.homeGuess90 !== undefined ? guess.homeGuess90 : guess.homeGuess;
-          const awayGuess90 = guess.awayGuess90 !== undefined ? guess.awayGuess90 : guess.awayGuess;
-          const homeGuess120 = guess.homeGuess120 !== undefined ? guess.homeGuess120 : homeGuess90;
-          const awayGuess120 = guess.awayGuess120 !== undefined ? guess.awayGuess120 : awayGuess90;
-          const shootoutWinnerGuess = guess.shootoutWinnerGuess || null;
-          const homeShootoutGuess = guess.homeShootoutGuess !== undefined ? guess.homeShootoutGuess : null;
-          const awayShootoutGuess = guess.awayShootoutGuess !== undefined ? guess.awayShootoutGuess : null;
-
-          const isCorrect90 = Number(homeGuess90) === Number(homeScore90) && Number(awayGuess90) === Number(awayScore90);
-          const isDraw90 = Number(homeScore90) === Number(awayScore90);
-          const isGuessDraw90 = Number(homeGuess90) === Number(awayGuess90);
-
-          const isCorrect120 = isDraw90 && isGuessDraw90 && (Number(homeGuess120) === Number(homeScore120) && Number(awayGuess120) === Number(awayScore120));
-          const isDraw120 = isDraw90 && (Number(homeScore120) === Number(awayScore120));
-          const isGuessDraw120 = isGuessDraw90 && (Number(homeGuess120) === Number(awayGuess120));
-
-          const isCorrectWinner = isDraw120 && isGuessDraw120 && (shootoutWinnerGuess === shootoutWinner);
-          const isCorrectShootoutScore = isDraw120 && isGuessDraw120 && 
-                                        (Number(homeShootoutGuess) === Number(homeShootoutScore) && Number(awayShootoutGuess) === Number(awayShootoutScore));
-
-          let pts = 0;
-          if (isCorrect90) pts += 1.0;
-          if (isCorrect120) pts += 1.0;
-          if (isCorrectWinner) pts += 0.5;
-          if (isCorrectShootoutScore) pts += 1.5;
-          guess.pointsEarned = pts;
+          // Skip client-side calculation for knockout matches to avoid incorrect/incomplete points
+          return
         } else {
           const isCorrect = Number(guess.homeGuess) === Number(match.homeScore) && 
                             Number(guess.awayGuess) === Number(match.awayScore)
@@ -613,7 +580,10 @@ const getGuessesForMatch = (matchId) => {
         const isCorrect = guess && Number(guess.homeGuess) === homeFinal && Number(guess.awayGuess) === awayFinal
         pointsEarned = isCorrect ? 1 : 0
       } else if (match && match.status === 'completed' && pointsEarned === null) {
-        if (guess && guess.homeGuess !== null && guess.awayGuess !== null) {
+        if (match.stage === 'knockout') {
+          // Keep null for knockout matches until locked
+          pointsEarned = null
+        } else if (guess && guess.homeGuess !== null && guess.awayGuess !== null) {
           const isCorrect = Number(guess.homeGuess) === Number(match.homeScore) && 
                             Number(guess.awayGuess) === Number(match.awayScore)
           pointsEarned = isCorrect ? 1 : 0
@@ -3017,10 +2987,11 @@ onUnmounted(() => {
                   class="badge-points"
                   :class="{
                     'points-earned': userGuesses[match.id]?.pointsEarned > 0,
-                    'points-missed': !userGuesses[match.id] || userGuesses[match.id]?.pointsEarned === 0
+                    'points-missed': userGuesses[match.id]?.pointsEarned === 0,
+                    'points-pending': !userGuesses[match.id] || userGuesses[match.id]?.pointsEarned === null || userGuesses[match.id]?.pointsEarned === undefined
                   }"
                 >
-                  {{ userGuesses[match.id]?.pointsEarned > 0 ? '+' + userGuesses[match.id]?.pointsEarned + ' Pts' : '0 Points' }}
+                  {{ userGuesses[match.id]?.pointsEarned !== null && userGuesses[match.id]?.pointsEarned !== undefined ? (userGuesses[match.id]?.pointsEarned > 0 ? '+' + userGuesses[match.id]?.pointsEarned + ' Pts' : '0 Points') : 'Pending Lock 🔒' }}
                 </span>
               </div>
 
@@ -3235,9 +3206,13 @@ onUnmounted(() => {
                     <span 
                       v-if="match.status === 'completed' && pred.homeGuess !== undefined && pred.homeGuess !== null" 
                       class="mini-points-badge"
-                      :class="pred.pointsEarned > 0 ? 'earned' : 'missed'"
+                      :class="{
+                        'earned': pred.pointsEarned > 0,
+                        'missed': pred.pointsEarned === 0,
+                        'pending': pred.pointsEarned === null || pred.pointsEarned === undefined
+                      }"
                     >
-                      {{ pred.pointsEarned > 0 ? '+' + pred.pointsEarned : '0' }}
+                      {{ pred.pointsEarned !== null && pred.pointsEarned !== undefined ? (pred.pointsEarned > 0 ? '+' + pred.pointsEarned : '0') : '⏳' }}
                     </span>
                   </span>
                 </div>

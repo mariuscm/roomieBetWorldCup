@@ -1123,6 +1123,12 @@ input[type="number"] {
   color: var(--danger);
 }
 
+.mini-points-badge.pending {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.6);
+}
+
+
 /* Authenticated Header Bar Layout */
 .app-header-bar {
   display: flex;
