@@ -896,6 +896,25 @@ const handleAdminTabClick = () => {
   })
 }
 
+const scrollToFirstUncompletedMatch = () => {
+  const firstUncompleted = matches.value.find(m => m.status !== 'completed')
+  if (!firstUncompleted) return
+  nextTick(() => {
+    setTimeout(() => {
+      const el = document.getElementById(`admin-match-${firstUncompleted.id}`)
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    }, 150)
+  })
+}
+
+watch([activeTab, activeAdminSubTab, matches], ([newTab, newSubTab, newMatches]) => {
+  if (newTab === 'admin' && newSubTab === 'scores' && newMatches && newMatches.length > 0) {
+    scrollToFirstUncompletedMatch()
+  }
+})
+
 // Auth Form State
 const isLogin = ref(true)
 const isForgotPassword = ref(false)
@@ -3399,7 +3418,7 @@ onUnmounted(() => {
         </p>
 
         <div class="matches-list">
-          <div v-for="match in matches" :key="match.id" class="match-card" style="background: rgba(0,0,0,0.15)">
+          <div v-for="match in matches" :key="match.id" :id="`admin-match-${match.id}`" class="match-card" style="background: rgba(0,0,0,0.15)">
             <div class="match-header">
               <div>📅 {{ formatDate(match.date) }}</div>
               <div>{{ match.status }}</div>
