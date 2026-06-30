@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
-import { version, changelog } from '../package.json'
+import { version } from '../package.json'
+import changelog from '../changelog.json'
 import { auth, db } from './firebase'
 import { 
   signInWithEmailAndPassword, 
@@ -2400,6 +2401,20 @@ const seedRoundOf32Matches = async () => {
   }
 }
 
+const showShootoutInputs = (matchId) => {
+  const score = adminScores.value[matchId]
+  if (!score) return false
+  const homeScoreRaw = parseFloat(score.homeScore)
+  const awayScoreRaw = parseFloat(score.awayScore)
+  
+  if (isNaN(homeScoreRaw) || isNaN(awayScoreRaw)) return false
+
+  const raw120Home = score.homeScore120 !== undefined && score.homeScore120 !== null && score.homeScore120 !== '' ? parseFloat(score.homeScore120) : homeScoreRaw
+  const raw120Away = score.awayScore120 !== undefined && score.awayScore120 !== null && score.awayScore120 !== '' ? parseFloat(score.awayScore120) : awayScoreRaw
+  
+  return raw120Home === raw120Away
+}
+
 // Admin Complete Match & Distribute Points
 const completeMatch = async (matchId) => {
   adminError.value = ''
@@ -2649,15 +2664,15 @@ const initRealtimeData = (currentUser) => {
     matches.value.forEach(match => {
       if (!adminScores.value[match.id]) {
         adminScores.value[match.id] = {
-          homeScore: match.homeScore !== null ? match.homeScore : 0,
-          awayScore: match.awayScore !== null ? match.awayScore : 0,
-          homeScore90: match.homeScore90 !== null ? match.homeScore90 : (match.homeScore !== null ? match.homeScore : 0),
-          awayScore90: match.awayScore90 !== null ? match.awayScore90 : (match.awayScore !== null ? match.awayScore : 0),
-          homeScore120: match.homeScore120 !== null ? match.homeScore120 : (match.homeScore !== null ? match.homeScore : 0),
-          awayScore120: match.awayScore120 !== null ? match.awayScore120 : (match.awayScore !== null ? match.awayScore : 0),
-          homeShootoutScore: match.homeShootoutScore !== null ? match.homeShootoutScore : 0,
-          awayShootoutScore: match.awayShootoutScore !== null ? match.awayShootoutScore : 0,
-          shootoutWinner: match.shootoutWinner !== null ? match.shootoutWinner : ''
+          homeScore: (match.homeScore !== undefined && match.homeScore !== null) ? match.homeScore : '',
+          awayScore: (match.awayScore !== undefined && match.awayScore !== null) ? match.awayScore : '',
+          homeScore90: (match.homeScore90 !== undefined && match.homeScore90 !== null) ? match.homeScore90 : '',
+          awayScore90: (match.awayScore90 !== undefined && match.awayScore90 !== null) ? match.awayScore90 : '',
+          homeScore120: (match.homeScore120 !== undefined && match.homeScore120 !== null) ? match.homeScore120 : '',
+          awayScore120: (match.awayScore120 !== undefined && match.awayScore120 !== null) ? match.awayScore120 : '',
+          homeShootoutScore: (match.homeShootoutScore !== undefined && match.homeShootoutScore !== null) ? match.homeShootoutScore : '',
+          awayShootoutScore: (match.awayShootoutScore !== undefined && match.awayShootoutScore !== null) ? match.awayShootoutScore : '',
+          shootoutWinner: match.shootoutWinner || ''
         }
       }
     })
@@ -3256,6 +3271,15 @@ onUnmounted(() => {
           ⚡ Knockout Stage
         </button>
       </div>
+      
+      <!-- Pending Lock Notice -->
+      <div v-if="pendingCompletedMatches.length > 0" style="margin-bottom: 1.5rem; padding: 0.75rem 1rem; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 8px; color: #fbbf24; font-size: 0.85rem; display: flex; align-items: center; gap: 0.6rem; line-height: 1.4;">
+        <span style="font-size: 1.1rem; line-height: 1;">⏳</span>
+        <div>
+          <span style="font-weight: 700;">Score sync pending:</span> 
+          Some match results are finished but not yet officially locked. Leaderboard scores are not final.
+        </div>
+      </div>
 
       <table class="leaderboard-table">
         <thead>
@@ -3297,6 +3321,7 @@ onUnmounted(() => {
               <span v-if="leaderboardFilter === 'group'">{{ player.groupPointsDisplay }}</span>
               <span v-else-if="leaderboardFilter === 'knockout'">{{ player.knockoutPointsDisplay }}</span>
               <span v-else>{{ player.pointsDisplay }}</span>
+              <span v-if="pendingCompletedMatches.length > 0" title="Pending official lock" style="margin-left: 0.35rem; font-size: 0.8rem; opacity: 0.75;">⏳</span>
             </td>
           </tr>
         </tbody>
@@ -3374,7 +3399,7 @@ onUnmounted(() => {
         </p>
 
         <div class="matches-list">
-          <div v-for="match in processedMatches" :key="match.id" class="match-card" style="background: rgba(0,0,0,0.15)">
+          <div v-for="match in matches" :key="match.id" class="match-card" style="background: rgba(0,0,0,0.15)">
             <div class="match-header">
               <div>📅 {{ formatDate(match.date) }}</div>
               <div>{{ match.status }}</div>
@@ -3434,7 +3459,7 @@ onUnmounted(() => {
                       <input type="number" min="0" max="15" step="1" placeholder="Away 120" style="width: 50px; text-align: center; font-size: 0.75rem; padding: 0.25rem;" v-model="adminScores[match.id].awayScore120" />
                     </div>
                   </div>
-                  <div v-if="adminScores[match.id].homeScore120 !== null && adminScores[match.id].homeScore120 === adminScores[match.id].awayScore120" style="display: flex; flex-direction: column; gap: 0.35rem;">
+                  <div v-if="showShootoutInputs(match.id)" style="display: flex; flex-direction: column; gap: 0.35rem;">
                     <div style="display: flex; align-items: center; gap: 0.25rem;">
                       <label style="font-size: 0.75rem; color: var(--text-muted); width: 60px;">Shootout:</label>
                       <input type="number" min="0" max="15" step="1" placeholder="Pens H" style="width: 50px; text-align: center; font-size: 0.75rem; padding: 0.25rem;" v-model="adminScores[match.id].homeShootoutScore" />

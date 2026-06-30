@@ -13,6 +13,8 @@ export default defineConfig({
         try {
           const pkgPath = path.resolve('package.json')
           const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'))
+          const changelogPath = path.resolve('changelog.json')
+          const changelog = fs.existsSync(changelogPath) ? JSON.parse(fs.readFileSync(changelogPath, 'utf-8')) : []
           const distDir = path.resolve('dist')
           if (!fs.existsSync(distDir)) {
             fs.mkdirSync(distDir, { recursive: true })
@@ -21,7 +23,7 @@ export default defineConfig({
             path.resolve(distDir, 'version.json'),
             JSON.stringify({ 
               version: pkg.version,
-              changelog: pkg.changelog || []
+              changelog: changelog
             }),
             'utf-8'
           )
