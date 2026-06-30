@@ -696,6 +696,11 @@ input[type="number"] {
   font-weight: 700;
 }
 
+.prediction-box.prediction-completed {
+  justify-content: center;
+}
+
+
 .badge-points {
   padding: 0.25rem 0.6rem;
   border-radius: 6px;

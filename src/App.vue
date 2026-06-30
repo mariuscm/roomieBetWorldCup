@@ -2999,7 +2999,7 @@ onUnmounted(() => {
             </div>
 
             <!-- Guess inputs / points presentation -->
-            <div class="prediction-box">
+            <div class="prediction-box" :class="{ 'prediction-completed': match.status === 'completed' || matchHasStarted(match.date) }">
               <div class="prediction-label">
                 {{ match.status === 'completed' ? 'Your Guess:' : 'Predict Score:' }}
               </div>
